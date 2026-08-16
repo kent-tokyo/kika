@@ -110,7 +110,7 @@ pub(crate) fn expansion_sum(base: &[f64], addend: &[f64]) -> Vec<f64> {
 pub(crate) fn expansion_sign(e: &[f64]) -> Sign {
     for &value in e.iter().rev() {
         if value != 0.0 {
-            return Sign::of_exact(value);
+            return Sign::of(value);
         }
     }
     Sign::Zero

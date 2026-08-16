@@ -13,10 +13,12 @@ pub enum Sign {
 impl Sign {
     /// The sign of an `f64`, treating `0.0` and `-0.0` both as `Sign::Zero`.
     ///
-    /// Only meaningful for values that are *already known to be exactly
-    /// correct* (e.g. the leading term of a nonoverlapping expansion) —
-    /// this is not a filter or a rounding decision.
-    pub(crate) fn of_exact(value: f64) -> Sign {
+    /// This is a raw sign extraction, not a filter — it says nothing about
+    /// whether `value` itself is trustworthy. Callers use it either on a
+    /// value already known exact (e.g. the leading term of a nonoverlapping
+    /// expansion) or on a filtered value whose sign a separately-computed
+    /// error bound has already proven correct.
+    pub(crate) fn of(value: f64) -> Sign {
         if value > 0.0 {
             Sign::Positive
         } else if value < 0.0 {

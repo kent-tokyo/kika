@@ -71,8 +71,13 @@ larger, but still derived, factor). The derivation for each predicate is
 recorded next to its filter constant in source (`predicates/orientNd.rs`
 etc.) and summarized below as each predicate is implemented:
 
-* `orient2d`: see `predicates/orient2d.rs` doc comment for the derived
-  bound (`ORIENT2D_ERR_BOUND_FACTOR`) once implemented.
+* `orient2d`: implemented. See `ORIENT2D_ERR_BOUND_FACTOR` in
+  `src/predicates/orient2d.rs` for the full derivation (`~4u *
+  (|left|+|right|)`, generous constant `7u`). Verified, not just derived:
+  `tests/differential/orient2d.rs` checks predicate output against an
+  independent `num-rational` oracle across random points, extreme and
+  mixed scales, and inputs deliberately walked across the filter's
+  conclusive/inconclusive boundary near collinearity.
 * `orient3d`, `incircle`, `insphere`: same pattern, added as each lands.
 
 If `|determinant| > error_bound`, the sign of `determinant` is provably the

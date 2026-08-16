@@ -46,11 +46,15 @@ in pure Rust, that's what Phase 1 of Kika is.
   validates and rejects NaN/infinity; once constructed, always finite.
 * `Sign`, `Orientation` — meaningful enums returned by predicates (never a
   raw determinant, never an ambiguous `bool`).
-* `orient2d`, `orient3d`, `incircle`, `insphere` — exact-sign geometric
-  predicates. Each uses a fast floating-point filter with a *computed*
-  error bound (never a fixed epsilon) and falls back to exact
-  expansion-arithmetic evaluation when the filter is inconclusive. See
+* `orient2d` — exact-sign 2D orientation predicate. Uses a fast
+  floating-point filter with a *computed* error bound (never a fixed
+  epsilon) and falls back to exact expansion-arithmetic evaluation when
+  the filter is inconclusive. Checked against an independent exact-rational
+  oracle in `tests/differential/`. See
   [`docs/numerical-model.md`](docs/numerical-model.md).
+* `orient3d`, `incircle`, `insphere` — not implemented yet (in progress,
+  same filter+exact-fallback design as `orient2d`). See
+  [Roadmap](#roadmap).
 
 ## Exact predicates vs. exact constructions
 
@@ -111,9 +115,9 @@ at your option.
 
 ## Roadmap
 
-Not yet implemented: 2D primitives beyond `Point2`/`Point3` (vectors,
-segments, triangles, AABBs), segment intersection, polygon
-validity/orientation, convex hull, Delaunay triangulation, exact
-constructions, constrained Delaunay, polygon/mesh Boolean, mesh repair,
-surface reconstruction, point-cloud processing. See
+Not yet implemented: `orient3d`, `incircle`, `insphere`; 2D primitives
+beyond `Point2`/`Point3` (vectors, segments, triangles, AABBs); segment
+intersection; polygon validity/orientation; convex hull; Delaunay
+triangulation; exact constructions; constrained Delaunay; polygon/mesh
+Boolean; mesh repair; surface reconstruction; point-cloud processing. See
 [`tasks/todo.md`](tasks/todo.md) for the phased backlog.
