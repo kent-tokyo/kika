@@ -79,6 +79,54 @@ If `|determinant| > error_bound`, the sign of `determinant` is provably the
 true sign and is returned without any fallback. Otherwise, the exact
 fallback (above) runs.
 
+## Known limitation: exact-product representability floor
+
+`two_product` (and by extension `grow_expansion`/`expansion_sum` built on
+it) represents an exact product as two `f64` values, `hi` and `lo`. This
+representation has a hard, algorithm-independent floor: it requires the
+true rounding error of `hi = fl(a*b)` — a value of magnitude roughly
+`ulp(hi)`, i.e. about `2^-53` relative to `hi` — to itself be exactly
+representable as a single `f64`. Since the smallest representable `f64`
+magnitude at all (a subnormal) is `2^-1074`, and the error term's own
+representable precision costs another `~2^-53` relative to *its* leading
+bit, the combined requirement works out to:
+
+```text
+|a * b| >= 2^-968  (~1.7e-292)
+```
+
+Below that, no two-`f64` exact-product representation can be fully exact —
+**verified empirically to affect a correctly-rounded FMA-based
+`two_product` identically to this split-based one** (both were checked
+against an exact-rational oracle down to product magnitudes of `1e-320`;
+both start losing exactness at the same `~1e-292` threshold). This is not
+a consequence of choosing split over FMA (ADR-001's FMA-portability
+argument stands on its own, independent of this finding) — it is inherent
+to representing an exact product as a pair of `f64`s at all.
+
+**Practical impact:** for `orient2d`/`orient3d`/`incircle`/`insphere`,
+this only matters on the rare exact-fallback path (the filter already
+handles the overwhelming majority of inputs). Exactness on that fallback
+path is guaranteed for coordinate differences with magnitude down to
+roughly `1e-140` each (worst case: two such values multiplied together
+give `~1e-280`, comfortably above the `1e-292` floor). Genuinely
+subnormal input coordinates (magnitude below `f64::MIN_POSITIVE`,
+`~2.2e-308`) are below this floor; Kika does not claim exact-fallback
+correctness for them. It does still guarantee the universal API contract
+(no panic, no NaN/Infinity output from finite input) —
+`expansion::tests::two_product_true_subnormal_operand_does_not_panic`
+covers this. No real-world coordinate system operates anywhere near this
+boundary (`1e-140` is many orders of magnitude below the Planck length in
+any physical unit), so this is not expected to matter in practice; it is
+documented rather than silently assumed away, per AGENTS.md §20.
+
+**Upgrade path**, if a future use case ever needs it: rescale operands by
+an exact power of two before calling `two_product` when either is outside
+the safe band, then rescale the result back — power-of-two scaling is
+lossless in IEEE-754 up to its own overflow/underflow limits, and would
+push the floor down by roughly the scaling exponent. Not implemented in
+Phase 1 (no known need).
+
 ## What is *not* claimed
 
 This is a two-stage (filter + exact) model, not Shewchuk's three-stage
