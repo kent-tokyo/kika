@@ -12,20 +12,26 @@ pub struct Triangle2 {
 }
 
 impl Triangle2 {
+    /// Creates a triangle with vertices `a`, `b`, `c` in the order given.
+    /// A degenerate (collinear-vertex) triangle is allowed — see the
+    /// type's doc comment.
     pub fn new(a: Point2, b: Point2, c: Point2) -> Self {
         Triangle2 { a, b, c }
     }
 
+    /// The first vertex.
     #[inline]
     pub fn a(&self) -> Point2 {
         self.a
     }
 
+    /// The second vertex.
     #[inline]
     pub fn b(&self) -> Point2 {
         self.b
     }
 
+    /// The third vertex.
     #[inline]
     pub fn c(&self) -> Point2 {
         self.c
@@ -92,9 +98,11 @@ impl Triangle2 {
 /// [`Triangle2::relation_to`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointTriangleRelation {
+    /// Strictly inside the triangle.
     Inside,
     /// On an edge (including exactly at a vertex).
     OnBoundary,
+    /// Not inside or on the boundary.
     Outside,
 }
 

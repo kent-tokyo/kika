@@ -37,11 +37,13 @@ impl Point2 {
         Point2 { x, y }
     }
 
+    /// The x coordinate.
     #[inline]
     pub fn x(&self) -> f64 {
         self.x
     }
 
+    /// The y coordinate.
     #[inline]
     pub fn y(&self) -> f64 {
         self.y

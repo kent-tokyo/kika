@@ -25,15 +25,18 @@ impl Aabb2 {
         }
     }
 
+    /// Builds the AABB containing exactly `s`'s two endpoints.
     pub fn from_segment(s: Segment2) -> Self {
         Self::from_points(s.a(), s.b())
     }
 
+    /// The box's lower-left corner (component-wise minimum).
     #[inline]
     pub fn min(&self) -> Point2 {
         self.min
     }
 
+    /// The box's upper-right corner (component-wise maximum).
     #[inline]
     pub fn max(&self) -> Point2 {
         self.max
@@ -48,6 +51,7 @@ impl Aabb2 {
             && other.min.y() <= self.max.y()
     }
 
+    /// `true` iff `p` lies inside the box, boundary inclusive.
     pub fn contains_point(&self, p: Point2) -> bool {
         self.min.x() <= p.x()
             && p.x() <= self.max.x()

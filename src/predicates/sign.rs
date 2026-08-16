@@ -5,8 +5,11 @@
 /// `docs/numerical-model.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sign {
+    /// The quantity is exactly negative.
     Negative,
+    /// The quantity is exactly zero.
     Zero,
+    /// The quantity is exactly positive.
     Positive,
 }
 
@@ -41,8 +44,11 @@ impl Sign {
 /// The orientation of an ordered sequence of 2D points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Orientation {
+    /// The sequence turns clockwise.
     Clockwise,
+    /// The sequence is degenerate (collinear).
     Collinear,
+    /// The sequence turns counterclockwise.
     CounterClockwise,
 }
 

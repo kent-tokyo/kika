@@ -18,14 +18,18 @@ pub struct Triangulation2 {
 }
 
 impl Triangulation2 {
+    /// The triangulation's triangles, in no particular order.
     pub fn triangles(&self) -> &[Triangle2] {
         &self.triangles
     }
 
+    /// The number of triangles.
     pub fn len(&self) -> usize {
         self.triangles.len()
     }
 
+    /// `true` iff there are no triangles (fewer than 3 non-collinear input
+    /// points).
     pub fn is_empty(&self) -> bool {
         self.triangles.is_empty()
     }

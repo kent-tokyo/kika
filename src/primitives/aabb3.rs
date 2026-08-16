@@ -9,6 +9,7 @@ pub struct Aabb3 {
 }
 
 impl Aabb3 {
+    /// Builds the AABB containing exactly `p` and `q`, in either order.
     pub fn from_points(p: Point3, q: Point3) -> Self {
         Aabb3 {
             min: Point3::new_unchecked(p.x().min(q.x()), p.y().min(q.y()), p.z().min(q.z())),
@@ -16,16 +17,20 @@ impl Aabb3 {
         }
     }
 
+    /// The box's minimum corner (component-wise minimum).
     #[inline]
     pub fn min(&self) -> Point3 {
         self.min
     }
 
+    /// The box's maximum corner (component-wise maximum).
     #[inline]
     pub fn max(&self) -> Point3 {
         self.max
     }
 
+    /// `true` iff the two boxes share at least one point, including
+    /// touching at a face, edge, or corner.
     pub fn overlaps(&self, other: &Aabb3) -> bool {
         self.min.x() <= other.max.x()
             && other.min.x() <= self.max.x()
@@ -35,6 +40,7 @@ impl Aabb3 {
             && other.min.z() <= self.max.z()
     }
 
+    /// `true` iff `p` lies inside the box, boundary inclusive.
     pub fn contains_point(&self, p: Point3) -> bool {
         self.min.x() <= p.x()
             && p.x() <= self.max.x()

@@ -30,6 +30,7 @@ pub enum PolygonBasicValidity {
     /// At least 3 vertices, no consecutive duplicates, but the exact
     /// signed area is zero anyway (e.g. all vertices collinear).
     ZeroArea,
+    /// None of the above cheap checks found a problem.
     Valid,
 }
 
@@ -38,24 +39,32 @@ pub enum PolygonBasicValidity {
 /// between them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PolygonSelfIntersection {
+    /// Index of the first edge (`edge_a` to `edge_a + 1`).
     pub edge_a: usize,
+    /// Index of the second edge.
     pub edge_b: usize,
+    /// How `edge_a` and `edge_b` intersect.
     pub kind: SegmentIntersectionKind,
 }
 
 impl Polygon2 {
+    /// Creates a polygon ring from `vertices`, in order. No validation —
+    /// see the type's doc comment.
     pub fn new(vertices: Vec<Point2>) -> Self {
         Polygon2 { vertices }
     }
 
+    /// The ring's vertices, in order.
     pub fn vertices(&self) -> &[Point2] {
         &self.vertices
     }
 
+    /// The number of vertices.
     pub fn len(&self) -> usize {
         self.vertices.len()
     }
 
+    /// `true` iff there are no vertices.
     pub fn is_empty(&self) -> bool {
         self.vertices.is_empty()
     }

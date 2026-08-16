@@ -45,8 +45,12 @@ pub enum SegmentIntersectionKind {
 /// four input coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SegmentIntersection2 {
+    /// The segments share no point.
     None,
+    /// A single shared point (covers `Proper`, `EndpointTouch`, and
+    /// `CollinearTouch`).
     Point(Point2),
+    /// Collinear segments overlapping along a sub-segment.
     Overlap(Segment2),
 }
 

@@ -16,20 +16,24 @@ pub struct Triangle3 {
 }
 
 impl Triangle3 {
+    /// Creates a triangle with vertices `a`, `b`, `c` in the order given.
     pub fn new(a: Point3, b: Point3, c: Point3) -> Self {
         Triangle3 { a, b, c }
     }
 
+    /// The first vertex.
     #[inline]
     pub fn a(&self) -> Point3 {
         self.a
     }
 
+    /// The second vertex.
     #[inline]
     pub fn b(&self) -> Point3 {
         self.b
     }
 
+    /// The third vertex.
     #[inline]
     pub fn c(&self) -> Point3 {
         self.c

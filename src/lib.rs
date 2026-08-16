@@ -2,6 +2,9 @@
 //!
 //! Pre-alpha; see the repository README and `docs/` for scope and status.
 
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+
 mod error;
 mod hull;
 mod intersections;

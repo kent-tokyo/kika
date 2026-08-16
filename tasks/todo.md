@@ -101,6 +101,16 @@
       `divide_loop_iteration_bound_is_generous`: worst case observed is 2
       iterations (ordinary + deliberately near-parallel crossings across
       `1e-300`..`1e100`), 4x below the bound — see `tasks/lessons.md`.
+- [x] Phase 6A: release-quality polish — `#![forbid(unsafe_code)]`,
+      `#![warn(missing_docs)]` (all 52 previously-undocumented public
+      items now documented), `examples/` (5 runnable examples), package
+      metadata (`homepage`/`documentation`), `docs/release-checklist.md`,
+      README maturity table, and fixed several trust-affecting staleness
+      issues found by re-reading the crate's own public-facing docs:
+      `Cargo.toml`'s `repository` pointed at a nonexistent org, and
+      `README.md`/`docs/compatibility.md` both described the CGAL
+      differential-test harness and CI as further along than they
+      actually were.
 - [x] fuzz targets (§12), first pass — 4 libFuzzer targets under `fuzz/`
       (`segment_intersection`, `convex_hull`, `delaunay_insert`,
       `triangulation_topology_validator`), prioritizing the combinatorial

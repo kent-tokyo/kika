@@ -27,16 +27,19 @@ impl Vector3 {
         }
     }
 
+    /// The x component.
     #[inline]
     pub fn x(&self) -> f64 {
         self.x
     }
 
+    /// The y component.
     #[inline]
     pub fn y(&self) -> f64 {
         self.y
     }
 
+    /// The z component.
     #[inline]
     pub fn z(&self) -> f64 {
         self.z

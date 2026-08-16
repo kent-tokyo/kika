@@ -7,6 +7,19 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- Release-quality polish pass (Phase 6A): `#![forbid(unsafe_code)]` and
+  `#![warn(missing_docs)]` at the crate root (every public item now
+  documented, enforced going forward by CI's existing `-D warnings`);
+  `examples/` with 5 runnable examples (`orient2d`, `segment_intersection`,
+  `convex_hull`, `delaunay`, `polygon_validity`); `Cargo.toml`
+  `homepage`/`documentation` metadata; a maturity table and corrected
+  CGAL-oracle/CI-status wording in `README.md` (both previously described
+  work that hadn't actually happened yet); `docs/release-checklist.md`.
+  Also fixes `Cargo.toml`'s `repository` field (was `kika-rs/kika`, a
+  nonexistent org, now the actual `kent-tokyo/kika` remote) and
+  `docs/compatibility.md`'s stale "CI not yet exercised"/Phase-1-era test
+  count and public API list.
+
 - Repository skeleton, dual `MIT OR Apache-2.0` license, ADR-001..005.
 - Exact expansion arithmetic core (`predicates::expansion`, internal):
   `two_sum`, `split`, `two_product`, `product_expansion`,

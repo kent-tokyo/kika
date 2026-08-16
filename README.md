@@ -18,12 +18,17 @@ replacement yet**, it is the robust kernel a future one would be built on.
 ## Why not just use CGAL?
 
 CGAL is the mature, comprehensive reference implementation for
-computational geometry, and Kika's predicate layer is tested against it as
-an external oracle during development (see
-[`docs/compatibility.md`](docs/compatibility.md)). But pulling CGAL into a
-Rust project means a C++ toolchain, CMake, Boost, and usually GMP/MPFR —
-friction that's real for `cargo build`-only workflows, WASM targets, and
-teams that want a pure-Rust dependency tree.
+computational geometry. Kika's plan is to test its predicate layer against
+it as an external oracle during development (§10) — **not done yet**: the
+comparison program is unbuilt and currently environment-blocked (no
+CGAL/pkg-config available in this project's development environment), see
+[`docs/compatibility.md`](docs/compatibility.md) and
+[`tasks/todo.md`](tasks/todo.md). Today's exactness claims are verified
+against independent `num-bigint`/`num-rational` oracles instead (see
+[Implemented today](#implemented-today) below), not against CGAL. Pulling
+CGAL into a Rust project at all means a C++ toolchain, CMake, Boost, and
+usually GMP/MPFR — friction that's real for `cargo build`-only workflows,
+WASM targets, and teams that want a pure-Rust dependency tree.
 
 Kika's bet, in order:
 
@@ -183,6 +188,17 @@ let c = Point2::new(0.0, 1.0).unwrap();
 assert_eq!(orient2d(a, b, c), Orientation::CounterClockwise);
 ```
 
+More, runnable via `cargo run --example <name>`, in [`examples/`](examples/):
+
+* [`orient2d`](examples/orient2d.rs) — the basic turn predicate
+* [`segment_intersection`](examples/segment_intersection.rs) — classify and
+  construct a segment crossing
+* [`convex_hull`](examples/convex_hull.rs) — `ExtremesOnly` vs
+  `KeepAllOnBoundary`
+* [`delaunay`](examples/delaunay.rs) — 2D Delaunay triangulation
+* [`polygon_validity`](examples/polygon_validity.rs) — `basic_validity` and
+  `find_self_intersection`
+
 ## WASM
 
 The predicate core has no OS or platform-specific code and builds for
@@ -191,16 +207,31 @@ The predicate core has no OS or platform-specific code and builds for
 
 ## Difference from CGAL
 
-Kika does not link CGAL and shares no source with it. CGAL is used only as
-an external, separate differential-test oracle during development (§10 of
-the project's development instructions) — never as a runtime or build
-dependency of the `kika` crate.
+Kika does not link CGAL and shares no source with it. CGAL is *planned* to
+be used only as an external, separate differential-test oracle during
+development (§10 of the project's development instructions) — never as a
+runtime or build dependency of the `kika` crate — but that comparison
+program does not exist yet; see [Why not just use CGAL?](#why-not-just-use-cgal)
+above.
 
 ## Stability
 
 Pre-1.0, no semver guarantees. The public `Kernel` trait design described
 in some computational-geometry libraries (CGAL included) is explicitly not
 being finalized yet — see ADR-004.
+
+## Maturity
+
+| Feature | Status |
+|---|---|
+| Predicates (`orient2d`, `orient3d`, `incircle`, `insphere`) | Stable enough for evaluation — filter + exact fallback, checked against independent oracles |
+| Segment intersection | Implemented — classification exact, `Proper` construction correctly rounded (ADR-004) |
+| Convex hull | Implemented — fully exact |
+| Delaunay triangulation | Implemented — fully exact, no synthetic coordinates |
+| Triangulation adjacency (vertex/edge/face queries) | Planned — design proposed (ADR-006), not implemented |
+| Constrained Delaunay | Planned — not implemented |
+| Polygon Boolean | Not implemented — exactness model still open, see ADR-004 |
+| 3D mesh operations | Not implemented |
 
 ## License
 
@@ -218,4 +249,7 @@ Phase 3 (2D convex hull), Phase 4 (2D Delaunay triangulation), and Phase 5
 (certified/exact constructions — an exact `Proper` segment-intersection
 point) are complete. Not yet implemented: constrained Delaunay; polygon/mesh
 Boolean; mesh repair; surface reconstruction; point-cloud processing. See
-[`tasks/todo.md`](tasks/todo.md) for the phased backlog.
+[`tasks/todo.md`](tasks/todo.md) for the phased backlog and
+[`docs/release-checklist.md`](docs/release-checklist.md) for what's
+verified vs. still needed before an actual `crates.io`/GitHub release
+(neither has happened yet).

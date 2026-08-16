@@ -27,15 +27,19 @@ pub enum PointSegmentRelation {
 }
 
 impl Segment2 {
+    /// Creates a segment between `a` and `b`. `a == b` (zero-length) is
+    /// allowed — see the type's doc comment.
     pub fn new(a: Point2, b: Point2) -> Self {
         Segment2 { a, b }
     }
 
+    /// The first endpoint.
     #[inline]
     pub fn a(&self) -> Point2 {
         self.a
     }
 
+    /// The second endpoint.
     #[inline]
     pub fn b(&self) -> Point2 {
         self.b
