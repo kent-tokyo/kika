@@ -25,6 +25,10 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   `orient2d`/`orient3d` (higher polynomial degree from the paraboloid
   lift); see `docs/numerical-model.md`. Each checked against an
   independent exact-rational oracle in `tests/differential/`.
+- CI (`.github/workflows/ci.yml`): `cargo fmt --check`, clippy
+  (`-D warnings`), test matrix (Linux/macOS/Windows), MSRV (1.85) check,
+  `wasm32-unknown-unknown` build, `cargo doc` (warnings denied),
+  `cargo-deny` (license + security-advisory check, `deny.toml`).
 
 ### Fixed
 

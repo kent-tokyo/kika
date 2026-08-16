@@ -1,0 +1,18 @@
+# cargo-deny config: license and security-advisory checks (AGENTS.md §16).
+# Runtime dependency tree is empty (see Cargo.toml); dev-dependencies are
+# the num-* crates (exact-rational test oracle, ADR-005) and their
+# transitive deps.
+
+[licenses]
+allow = ["MIT", "Apache-2.0"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[advisories]
+ignore = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
