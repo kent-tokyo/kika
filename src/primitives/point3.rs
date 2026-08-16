@@ -29,6 +29,12 @@ impl Point3 {
         }
     }
 
+    /// Builds a point without validating finiteness. See
+    /// `Point2::new_unchecked`'s doc comment; same rationale.
+    pub(crate) fn new_unchecked(x: f64, y: f64, z: f64) -> Self {
+        Point3 { x, y, z }
+    }
+
     #[inline]
     pub fn x(&self) -> f64 {
         self.x
@@ -71,5 +77,15 @@ mod tests {
         assert_eq!(p.x(), 1.5);
         assert_eq!(p.y(), -2.5);
         assert_eq!(p.z(), 3.0);
+    }
+
+    /// Equality policy (ADR-003 "Phase 2: point equality policy"): exact
+    /// coordinate equality, no tolerance. Signed zero compares equal, per
+    /// IEEE-754, matching how the predicates already treat it.
+    #[test]
+    fn equality_is_exact_and_signed_zero_matches() {
+        assert_eq!(Point3::new(1.0, 2.0, 3.0), Point3::new(1.0, 2.0, 3.0));
+        assert_ne!(Point3::new(1.0, 2.0, 3.0), Point3::new(1.0, 2.0, 3.0000001));
+        assert_eq!(Point3::new(0.0, -0.0, 0.0), Point3::new(-0.0, 0.0, -0.0));
     }
 }

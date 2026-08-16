@@ -44,6 +44,10 @@ in pure Rust, that's what Phase 1 of Kika is.
 
 * `Point2`, `Point3` — finite-coordinate points (`f64`). Construction
   validates and rejects NaN/infinity; once constructed, always finite.
+  Equality is exact coordinate equality (no tolerance) — see ADR-003.
+* `Vector2`, `Vector3` — finite-coordinate displacement vectors, with the
+  standard point/vector affine arithmetic (`Point ± Vector -> Point`,
+  `Point - Point -> Vector`, vector `+`/`-`/`-` (negate)/`* f64`).
 * `Sign`, `Orientation` — meaningful enums returned by predicates (never a
   raw determinant, never an ambiguous `bool`).
 * `orient2d` — exact-sign 2D orientation predicate. Uses a fast
@@ -132,9 +136,9 @@ at your option.
 
 ## Roadmap
 
-Not yet implemented: 2D primitives beyond `Point2`/`Point3` (vectors,
-segments, triangles, AABBs); segment intersection; polygon
-validity/orientation; convex hull; Delaunay triangulation; exact
-constructions; constrained Delaunay; polygon/mesh Boolean; mesh repair;
+Not yet implemented: `Segment2`, `Triangle2`/`Triangle3`, `Aabb2`/`Aabb3`;
+segment intersection; polygon validity/orientation; convex hull; Delaunay
+triangulation; exact constructions; constrained Delaunay; polygon/mesh
+Boolean; mesh repair;
 surface reconstruction; point-cloud processing. See
 [`tasks/todo.md`](tasks/todo.md) for the phased backlog.

@@ -1,6 +1,7 @@
 # ADR-003: Public primitive types
 
-Status: Accepted (Phase 1 subset; remaining types deferred to Phase 2)
+Status: Accepted (Phase 1 subset landed; Phase 2 remainder — see
+"Phase 2: point equality policy" below — now also accepted)
 
 ## Context
 
@@ -43,7 +44,35 @@ Intersections") and are not stubbed out ahead of need.
 * `Point2::new`/`Point3::new` are the only fallible entry points in the
   Phase 1 API surface; everything downstream is panic-free and
   `Result`-free.
-* `PartialEq`/`Eq` on points is intentionally *not* derived yet — bitwise
-  point equality vs. a tolerance-based policy is a Phase 2 concern (point
-  equality policy, §9 Phase 2) and premature derivation here would bake in
-  an unreviewed decision.
+
+## Phase 2: point equality policy
+
+**Exact coordinate equality, via derived `PartialEq`** — `a == b` iff
+every coordinate compares equal under IEEE-754 `f64` equality
+(`a.x() == b.x() && a.y() == b.y()`, etc.).
+
+No tolerance/epsilon-based "coincident point" comparison is provided at
+this layer, for the same reason AGENTS.md §4.1 bans fixed epsilons in
+predicates: there is no scale-invariant threshold that is correct for
+every caller, and baking one into `Point2`/`Point3` would silently
+reintroduce exactly the problem the predicate layer exists to avoid.
+Algorithms that need a tolerant "are these effectively the same point"
+notion (e.g. Delaunay's duplicate-input-point handling, Phase 4) define
+their own policy on top of this exact equality, explicitly, at the
+algorithm level — not here.
+
+Consequences of "exact" specifically:
+
+* `-0.0 == 0.0` (IEEE-754's own rule, inherited via `f64`'s `PartialEq`)
+  — consistent with how the predicates already treat signed zero (Phase
+  1: `Sign::of` maps both to `Sign::Zero`).
+* `Eq` is not derived — `f64` only implements `PartialEq` (NaN breaks
+  reflexivity at the type-system level), even though `Point2`/`Point3`'s
+  finite-only invariant makes this particular `PartialEq` total in
+  practice. Not worth an unsafe/manual `Eq` impl for that technicality
+  before something actually needs `Point2` as e.g. a `HashMap` key.
+* `PartialEq` was in fact already derived on `Point2`/`Point3` during
+  Phase 1 (for test ergonomics) before this ADR section existed; this
+  formalizes that as the deliberate Phase 2 decision rather than an
+  accidental one, and is the reason this ADR's status line now marks the
+  Phase 2 item accepted too.

@@ -28,6 +28,15 @@ impl Point2 {
         }
     }
 
+    /// Builds a point without validating finiteness. For internal use by
+    /// arithmetic (`Point2 + Vector2` etc.) operating on already-finite
+    /// operands — see `Vector2`'s module doc for why arithmetic doesn't
+    /// re-validate. Not exposed publicly: `new` is the only finiteness
+    /// boundary (ADR-003).
+    pub(crate) fn new_unchecked(x: f64, y: f64) -> Self {
+        Point2 { x, y }
+    }
+
     #[inline]
     pub fn x(&self) -> f64 {
         self.x
@@ -68,5 +77,15 @@ mod tests {
         let p = Point2::new(1.5, -2.5).unwrap();
         assert_eq!(p.x(), 1.5);
         assert_eq!(p.y(), -2.5);
+    }
+
+    /// Equality policy (ADR-003 "Phase 2: point equality policy"): exact
+    /// coordinate equality, no tolerance. Signed zero compares equal, per
+    /// IEEE-754, matching how the predicates already treat it.
+    #[test]
+    fn equality_is_exact_and_signed_zero_matches() {
+        assert_eq!(Point2::new(1.0, 2.0), Point2::new(1.0, 2.0));
+        assert_ne!(Point2::new(1.0, 2.0), Point2::new(1.0, 2.0000001));
+        assert_eq!(Point2::new(0.0, -0.0), Point2::new(-0.0, 0.0));
     }
 }

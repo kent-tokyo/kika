@@ -29,6 +29,10 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   (`-D warnings`), test matrix (Linux/macOS/Windows), MSRV (1.85) check,
   `wasm32-unknown-unknown` build, `cargo doc` (warnings denied),
   `cargo-deny` (license + security-advisory check, `deny.toml`).
+- `Vector2`, `Vector3` finite-coordinate displacement types, with
+  `Point ± Vector -> Point` / `Point - Point -> Vector` affine arithmetic
+  and vector `+`/`-`/negate/`* f64`. Point equality policy formalized as
+  exact coordinate equality (ADR-003).
 
 ### Fixed
 
