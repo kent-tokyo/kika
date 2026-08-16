@@ -36,6 +36,11 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 - `Segment2`, `Triangle2`, `Triangle3`, `Aabb2`, `Aabb3` primitive types.
   `Triangle2::orientation()`; `Aabb2`/`Aabb3::overlaps()` (exact, no
   predicate calls — a fast bounding-box rejection test).
+- `Segment2::relation_to` (point-on-segment), `Triangle2::relation_to`
+  (point-in-triangle): exact predicates built from `orient2d`, each with
+  explicit degenerate-case handling (zero-length segment; collinear
+  triangle). Checked against independent exact-rational oracles in
+  `tests/differential/`.
 
 ### Fixed
 
@@ -62,3 +67,11 @@ anything public regressed)*
   (merge-by-magnitude + single `two_sum` cascade) plus balanced
   binary-tree combination instead of a linear fold; see
   `docs/numerical-model.md`.
+- `Triangle2::relation_to` (point-in-triangle) used to incorrectly return
+  `OnBoundary` for a point far outside a degenerate (collinear-vertex)
+  triangle's span but still on the same shared line — the general
+  3-edge `orient2d` test can't distinguish the two cases for a degenerate
+  triangle, since all three checks are trivially `Collinear` for any
+  point on that line. Fixed with an explicit degenerate case using
+  `Segment2::relation_to` (exact range membership); see
+  `tests/regression/point_in_triangle.rs` and `docs/degeneracy-policy.md`.

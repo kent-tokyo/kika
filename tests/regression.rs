@@ -6,3 +6,5 @@
 mod incircle;
 #[path = "regression/orient2d.rs"]
 mod orient2d;
+#[path = "regression/point_in_triangle.rs"]
+mod point_in_triangle;

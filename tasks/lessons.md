@@ -84,3 +84,16 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   between two predicates' degenerate cases is a hypothesis, not a fact —
   check it the same way as any other numerical claim before writing it
   into docs or tests, even when it "obviously" generalizes.
+- Phase 2 bug, same shape as the insphere-coplanar one: `Triangle2::relation_to`'s
+  general algorithm (3 `orient2d` edge-side checks) silently breaks for a
+  degenerate (collinear-vertex) triangle, because all three checks are
+  trivially `Collinear` for *any* point on the shared line — the test
+  can't tell "within the triangle's degenerate span" from "same line,
+  miles away". Caught by a test (`p` far outside the span on the shared
+  line) written specifically to probe the degenerate case, not by
+  assuming the general algorithm would handle it — the exact assumption
+  that broke `incircle` earlier this session. Lesson reinforced: a
+  predicate built by composing several exact sub-predicates (`orient2d`
+  ×3 here) needs its *own* degenerate-case analysis; composing exact
+  parts doesn't automatically make the composition's edge cases exact.
+  See `docs/degeneracy-policy.md` and `tests/regression/point_in_triangle.rs`.

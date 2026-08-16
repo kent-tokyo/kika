@@ -52,8 +52,15 @@ in pure Rust, that's what Phase 1 of Kika is.
   types over the above (no extra validation beyond what `Point2`/`Point3`
   already guarantee); zero-length segments and degenerate
   (collinear-vertex) triangles are valid, representable values, not
-  rejected. `Triangle2::orientation()` wraps `orient2d`. `Aabb2`/`Aabb3`
-  give an exact, `orient2d`-free `overlaps()` fast-reject test.
+  rejected. `Aabb2`/`Aabb3` give an exact, `orient2d`-free `overlaps()`
+  fast-reject test.
+* `Segment2::relation_to`, `Triangle2::orientation`/`relation_to` —
+  exact point-on-segment and point-in-triangle predicates, built entirely
+  from `orient2d`. Each degenerate case (zero-length segment, collinear
+  triangle) is handled explicitly, not assumed to fall out of the general
+  algorithm — one case initially didn't and was caught by testing, see
+  `docs/degeneracy-policy.md`. Checked against an independent
+  exact-rational oracle in `tests/differential/`.
 * `Sign`, `Orientation` — meaningful enums returned by predicates (never a
   raw determinant, never an ambiguous `bool`).
 * `orient2d` — exact-sign 2D orientation predicate. Uses a fast
@@ -142,9 +149,9 @@ at your option.
 
 ## Roadmap
 
-Not yet implemented: point-on-segment; point-in-triangle; segment
-intersection; polygon type, area, validity, self-intersection detection;
-convex hull; Delaunay triangulation; exact constructions; constrained
-Delaunay; polygon/mesh Boolean; mesh repair; surface reconstruction;
-point-cloud processing. See [`tasks/todo.md`](tasks/todo.md) for the
+Not yet implemented: segment intersection; polygon type, area, validity,
+self-intersection detection; convex hull; Delaunay triangulation; exact
+constructions; constrained Delaunay; polygon/mesh Boolean; mesh repair;
+surface reconstruction; point-cloud processing. See
+[`tasks/todo.md`](tasks/todo.md) for the
 phased backlog.

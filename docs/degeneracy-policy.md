@@ -1,6 +1,7 @@
 # Degeneracy policy
 
-Status: Phase 1 subset only. See ADR-002 for full reasoning.
+Status: Phase 1 (predicates) + Phase 2 (2D primitive queries) subset. See
+ADR-002 for full reasoning.
 
 ## Predicate-level degeneracies (Phase 1, implemented)
 
@@ -20,6 +21,13 @@ Status: Phase 1 subset only. See ADR-002 for full reasoning.
 
 These require no tie-break rule: a predicate's sign is a mathematical fact
 about its inputs, not a choice among multiple valid answers.
+
+## Geometric-query degeneracies (Phase 2, implemented)
+
+| Case | Behavior |
+|---|---|
+| Zero-length segment (`a == b`) | `Segment2::relation_to` returns `Endpoint` iff `p == a`, `NotOnSegment` otherwise — no "interior" to be on. |
+| Degenerate (collinear-vertex) triangle | `Triangle2::relation_to` never returns `Inside` (zero area, nothing to be inside of). Returns `OnBoundary` iff `p` lies on the segment spanned by the three collinear vertices (checked via the union of the three point-pairs' segments, which always covers the full span regardless of vertex order), `Outside` otherwise. **Not** just "is `p` collinear with the vertices" — a point on the *same line* but far outside the vertices' span is `Outside`, not `OnBoundary`. This distinction was a real bug during development (the general 3-edge `orient2d` test alone can't tell the two cases apart, since all three checks are trivially `Collinear` for any point on that shared line): see `tests/regression/point_in_triangle.rs`. |
 
 ## Algorithm-level tie-breaking (not yet applicable)
 
