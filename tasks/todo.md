@@ -135,15 +135,18 @@
       derived on the floor side
 - [ ] `Triangulation2` exposes only a flat triangle list, no
       adjacency/half-edge structure — deliberate (§6: split into a real
-      structure only when a consumer actually needs neighbor queries),
-      but constrained Delaunay (Phase 6) will likely need one
+      structure only when a consumer actually needs neighbor queries).
+      Design for closing this before Phase 6 is now proposed in ADR-006
+      (indexed triangle adjacency, generational IDs, migration plan) —
+      not yet implemented, design only
 
 ## Backlog (later phases, not started)
 
 - [ ] Phase 6: constrained Delaunay, polygon Boolean — revisit ADR-004
       again if this needs exactness chained across multiple constructions
       (not just one correctly-rounded coordinate per call, as Phase 5's
-      `line_intersection` needed)
+      `line_intersection` needed). Pre-design done: ADR-006 (triangulation
+      adjacency structure). Implementation not started.
 - [ ] CGAL differential-test harness (separate program, §10) — currently
       environment-blocked, not just unstarted: CGAL/pkg-config are not
       installed in this development environment
