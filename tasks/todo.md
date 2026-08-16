@@ -11,7 +11,10 @@
       fallback, each checked against an independent exact-rational oracle
 - [x] CI workflow (`.github/workflows/ci.yml`): fmt, clippy, test matrix
       (Linux/macOS/Windows), MSRV (1.85), wasm32 build, `cargo doc`,
-      `cargo deny` (license + advisory check, `deny.toml`)
+      `cargo deny` (license + advisory check, `deny.toml`). Confirmed
+      green on an actual push, not just locally, once a GitHub remote
+      (`kent-tokyo/kika`) was created and the first 3 phase commits
+      were pushed — previously only locally verified.
 - [x] `Vector2`/`Vector3`, `Segment2`, `Triangle2`/`Triangle3`,
       `Aabb2`/`Aabb3`; point equality policy formalized (ADR-003)
 - [x] `Segment2::relation_to` (point-on-segment), `Triangle2::relation_to`
@@ -98,11 +101,31 @@
       `divide_loop_iteration_bound_is_generous`: worst case observed is 2
       iterations (ordinary + deliberately near-parallel crossings across
       `1e-300`..`1e100`), 4x below the bound — see `tasks/lessons.md`.
+- [x] fuzz targets (§12), first pass — 4 libFuzzer targets under `fuzz/`
+      (`segment_intersection`, `convex_hull`, `delaunay_insert`,
+      `triangulation_topology_validator`), prioritizing the combinatorial
+      algorithms over predicates (already covered by thick differential/
+      adversarial suites). Inputs map to a small-integer coordinate grid
+      rather than raw byte-to-`f64`, deliberately: continuous random floats
+      almost never produce the duplicate/collinear/cocircular
+      configurations that stress combinatorial logic, so a grid makes those
+      common instead of vanishingly rare — see `fuzz/fuzz_targets/common.rs`.
+      Short bounded runs only (60-90s each, ~1.65M total executions), not
+      unbounded/nightly-scale fuzzing per AGENTS.md §11's "重い測定を通常
+      の開発ループで繰り返さない" — no crashes found across all 4 targets,
+      including `triangulation_topology_validator`'s edge-connectivity
+      (every edge used by exactly 1 or 2 triangles) and Euler's-formula
+      checks. Remaining `predicate input bytes`/`polygon parser`/
+      `polygon validity` targets from AGENTS.md §12's full list not yet
+      added — out of scope for this pass, which targeted the topology/
+      algorithm layer specifically.
 
 ## Known gaps, not yet closed (see docs/compatibility.md)
 
-- [ ] CI workflow added but not yet exercised by an actual push/PR run —
-      "should pass" based on local verification, not CI-confirmed
+- [ ] The 4 fuzz targets added so far ran clean on short (60-90s) local
+      runs only — no coverage-guided corpus persisted across runs, no
+      nightly/long-duration run performed yet, no `predicate input bytes`/
+      `polygon parser`/`polygon validity` targets from AGENTS.md §12's list
 - [ ] wasm32: build verified, but no test execution under wasm32 (needs
       `wasm-bindgen-test`/`wasmtime`) — the "Rust never contracts +/-/*
       into FMA" argument in ADR-001 is a language guarantee, not
@@ -124,8 +147,6 @@
 - [ ] CGAL differential-test harness (separate program, §10) — currently
       environment-blocked, not just unstarted: CGAL/pkg-config are not
       installed in this development environment
-- [ ] fuzz targets (§12) — none yet; differential/regression tests so far
-      are hand-written and randomized, not coverage-guided fuzzing
 - [ ] benches (§13) — predicate fast-path/fallback rate measurement not
       yet built; no performance numbers exist beyond the ad hoc timing
       used to catch and confirm the O(count²) merge bug

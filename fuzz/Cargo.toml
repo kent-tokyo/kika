@@ -1,0 +1,42 @@
+[package]
+name = "kika-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.kika]
+path = ".."
+
+[[bin]]
+name = "segment_intersection"
+path = "fuzz_targets/segment_intersection.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "convex_hull"
+path = "fuzz_targets/convex_hull.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "delaunay_insert"
+path = "fuzz_targets/delaunay_insert.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "triangulation_topology_validator"
+path = "fuzz_targets/triangulation_topology_validator.rs"
+test = false
+doc = false
+bench = false
