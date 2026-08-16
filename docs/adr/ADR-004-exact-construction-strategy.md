@@ -101,12 +101,120 @@ scales, mixed-magnitude inputs, and an empirical floor sweep. See
 range and `tasks/lessons.md` for a lesson on a wrong a priori assumption
 about that range's direction that measurement corrected.
 
+## Phase 6 re-evaluation (pre-design, before implementation)
+
+Re-opened per "Revisit when" below, ahead of Phase 6 implementation, to
+check whether the Phase 5 decision above satisfies polygon Boolean's actual
+requirements: vertex identity across independently-computed intersection
+points, consistent ordering of multiple intersections along a shared edge,
+safe re-evaluation of predicates against constructed points, and overall
+topological consistency of the resulting arrangement. This section records
+a finding, not a new decision — no representation is chosen here; see
+"What remains open" below.
+
+**Most load-bearing finding: Phase 6a (constrained Delaunay) needs no new
+construction at all.** A constrained Delaunay triangulation exists for any
+PSLG (planar straight-line graph) using only the *input* vertices — segment
+recovery is done by edge-flipping between existing points, not by
+constructing new intersection coordinates (the standard CDT theorem; no
+Steiner points required for straight-line constraints). CDT therefore
+operates purely on already-exact input vertices via `orient2d`/`incircle`,
+exactly like unconstrained Delaunay (Phase 4) already does. **The Phase 5
+decision is untouched for Phase 6a — nothing here reopens it.** Only Phase
+6b (polygon Boolean's overlay step, which genuinely constructs new
+segment-segment crossing points between the two input polygons) is in
+scope for the rest of this section.
+
+**Vertex identity holds for exactly-concurrent inputs.** If two different
+segment pairs happen to cross at the exact same true point (e.g. three
+concurrent lines), `correctly_rounded_divide` returns the `f64` nearest to
+that one true value for *both* pairwise computations — round-to-nearest is
+a deterministic function of the true real number, independent of which
+arithmetic path produced it. Two computations of the same true value agree.
+This is a real guarantee the current construction already provides, not a
+gap.
+
+**Two real gaps, both structural, neither solved by correct rounding alone:**
+
+1. **Ordering along a shared edge is not guaranteed to survive rounding.**
+   `line_intersection` correctly rounds its `x` and `y` output
+   *independently*. The returned point is therefore generally not exactly
+   *on* either input line — it is the nearest representable lattice point
+   to a point that was. Two intersections that are close together along a
+   shared edge can, after independent per-axis rounding, compare in the
+   opposite order from their true parametric order along that edge. This
+   is not an exotic edge case avoided in practice; it is a structural
+   consequence of rounding `x` and `y` separately instead of rounding a
+   single parametric position.
+2. **Re-predicate evaluation against a rounded point is not guaranteed
+   consistent with the rest of an exact arrangement** — the classical
+   snap-rounding problem (Hobby 1999; Fortune; CGAL's own distinction
+   between exact-predicates-inexact-constructions and
+   exact-predicates-*exact*-constructions kernels). Correct rounding
+   guarantees the output is the nearest `f64` to *that one* true value; it
+   makes no guarantee that re-evaluating a predicate against that rounded
+   point — say, against some third, unrelated edge passing very close to
+   the true (unrounded) intersection — still agrees with what exact
+   arithmetic on the true value would have said. Accuracy and consistency
+   are different properties; Phase 5 solved the first, not the second.
+
+**What would close these gaps, and what it would cost:** both gaps trace to
+the same root cause — rounding to `f64` before all consistency-relevant
+comparisons are done, rather than after. The fix is a lazily-exact
+intermediate representation for overlay's constructed points, carried
+through the arrangement-construction phase and only collapsed to `f64` (via
+the existing `correctly_rounded_divide`) once each point's role is settled.
+Two candidates, both from ADR-004's original list:
+
+* **Expansion-backed homogeneous coordinates (leading candidate, zero new
+  dependencies).** Represent a constructed point as `(num_x, num_y, denom)`
+  — the same exact expansions `line_intersection` already builds, just left
+  unevaluated instead of divided. Comparisons (ordering, equality,
+  predicate evaluation against other expansion-backed or plain points) are
+  done exactly via cross-multiplication using the existing expansion
+  primitives (`product_of_expansions`, `expansion_sum`, `expansion_sign`) —
+  no rounding anywhere until final output. This reuses 100% of Phase 1/5's
+  existing machinery; ADR-005's zero-runtime-dependency posture is
+  unaffected.
+  * **This is not a claim that expansions make chained construction fully
+    exact for free.** Expansions are closed under `+`, `-`, `×` but *not*
+    `÷` — the same reason `line_intersection` needed
+    `correctly_rounded_divide` in the first place. A chained construction
+    (an intersection whose input is itself a previously-constructed,
+    still-unevaluated point) combines two `(num, denom)` ratios by
+    multiplying denominators, so component count grows with chain depth,
+    and each product is still subject to `product_expansion`'s measured
+    representability floor (`~1.7e-292`, `docs/numerical-model.md`). This
+    is a real, measurable ceiling, not a solved problem — it needs
+    measuring at Phase 6b implementation time, the same "measure it, don't
+    assume it" discipline this crate applied to Phase 5's loop-iteration
+    bound and magnitude floor.
+* **Rational-backed construction (fallback, requires approval).** If
+  expansion-backed homogeneous coordinates prove insufficient in practice
+  (e.g. chain-depth growth becomes a real performance problem, to be
+  checked by the benchmarking pass already planned), the documented
+  fallback is `num-bigint`/`num-rational` as a genuine **runtime**
+  dependency for overlay's internal bookkeeping — not the dev-only,
+  test-oracle-isolated use ADR-005 already permits. This is a new runtime
+  dependency and stays pending explicit user approval per AGENTS.md §19;
+  recorded in `tasks/todo.md`'s "Deferred pending explicit user approval"
+  list, not just in this prose.
+
+**What remains open, deliberately:** this section does not choose between
+expansion-backed homogeneous coordinates and rational-backed construction,
+and does not design the overlay algorithm that would consume either. That
+is Phase 6b's own decision, to be made when Phase 6b's actual algorithm
+(and whether it turns out to need the DCEL-style structure ADR-006 also
+left open for the same reason) is concretely known — repeating, one level
+deeper, the exact discipline that produced this section in the first
+place.
+
 ## Revisit when
 
-Phase 6 (constrained Delaunay, polygon Boolean) reveals what construction
-needs it actually has. If those need exactness chained across multiple
-constructions (not just one correctly-rounded coordinate per call, as
-`line_intersection` needed), this ADR should be re-opened again rather than
-assuming the float+certificate model automatically extends — the same
-"decide when the real need is known, not speculatively" principle that
-deferred this ADR past Phase 1 and past Phase 2 through Phase 4.
+Phase 6b (polygon Boolean's overlay step) implementation begins and reveals
+its actual construction and consistency needs. At that point, choose
+between expansion-backed homogeneous coordinates and (if approved)
+rational-backed construction for overlay's intermediate points — informed
+by what Phase 6b's algorithm actually does, not decided speculatively here.
+Phase 6a (constrained Delaunay) needs no revisit: per the finding above, it
+uses no new construction and the Phase 5 decision already covers it.

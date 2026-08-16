@@ -142,11 +142,14 @@
 
 ## Backlog (later phases, not started)
 
-- [ ] Phase 6: constrained Delaunay, polygon Boolean — revisit ADR-004
-      again if this needs exactness chained across multiple constructions
-      (not just one correctly-rounded coordinate per call, as Phase 5's
-      `line_intersection` needed). Pre-design done: ADR-006 (triangulation
-      adjacency structure). Implementation not started.
+- [ ] Phase 6: constrained Delaunay, polygon Boolean. Pre-design done:
+      ADR-006 (triangulation adjacency structure), ADR-004's Phase 6
+      re-evaluation (float+certificate is sufficient for Phase 6a/CDT,
+      which needs no new construction at all; Phase 6b/overlay needs a
+      lazily-exact representation, expansion-backed homogeneous
+      coordinates leading, rational-backed as an approval-gated fallback
+      — neither implemented yet, both explicitly left open pending Phase
+      6b's actual algorithm). Implementation not started.
 - [ ] CGAL differential-test harness (separate program, §10) — currently
       environment-blocked, not just unstarted: CGAL/pkg-config are not
       installed in this development environment
@@ -164,4 +167,9 @@
 
 - [ ] crates.io publish
 - [ ] GitHub release / repo visibility change
-- [ ] Any new runtime (non-dev) dependency
+- [ ] Any new runtime (non-dev) dependency, including specifically:
+      `num-bigint`/`num-rational` (or similar) promoted from dev-only
+      (ADR-005) to a genuine runtime dependency, as the fallback if
+      expansion-backed homogeneous coordinates prove insufficient for
+      Phase 6b's polygon-overlay construction needs — see ADR-004's
+      "Phase 6 re-evaluation" section
