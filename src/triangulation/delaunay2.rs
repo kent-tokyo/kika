@@ -1,24 +1,72 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use super::ids::{EdgeId, FaceId, VertexId};
 use crate::hull::{HullBoundaryPoints, convex_hull2, dedup_sorted};
 use crate::predicates::{Orientation, Sign, incircle, orient2d};
 use crate::primitives::{Point2, Triangle2};
 
-/// A 2D Delaunay triangulation: a flat list of non-overlapping,
+/// A 2D Delaunay triangulation: a set of non-overlapping,
 /// counterclockwise-wound [`Triangle2`]s whose union is the input's convex
-/// hull, with no input point strictly inside any triangle's circumcircle.
+/// hull, with no input point strictly inside any triangle's circumcircle,
+/// plus the adjacency between them (§6B, ADR-006).
 ///
-/// No adjacency/topology is exposed — just the triangle list. A structured
-/// (half-edge or similar) representation is deferred until a consumer
-/// actually needs neighbor queries (§6: split into a real structure only
-/// when required, not preemptively).
+/// [`Triangulation2::triangles`] keeps its original flat, coordinate-only
+/// view for callers that don't need topology. [`VertexId`]/[`EdgeId`]/
+/// [`FaceId`] and the query methods below (`vertices`, `edges`, `faces`,
+/// `edge_vertices`, `adjacent_faces`, `face_vertices`, `neighboring_faces`,
+/// `boundary_edges`) expose the underlying indexed-triangle-adjacency
+/// structure ADR-006 designed, needed for constrained Delaunay (Phase 6C)
+/// and beyond.
+///
+/// This is a **static, post-construction snapshot** — there is no public
+/// mutation API, so IDs are plain indices into fixed-size arrays, not the
+/// generational handles a *mutating* structure would need. ADR-006's
+/// generational-arena proposal is scoped to construction-time mutation
+/// (Bowyer-Watson's own insertion loop, still internal and index-churning
+/// — see `insert_point`), not this frozen view of its result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Triangulation2 {
+    /// Coordinates, kept for `triangles()`'s pre-existing contract.
     triangles: Vec<Triangle2>,
+    /// Canonical vertex list; `VertexId(i)` indexes here. Deliberately
+    /// redundant with `triangles`'s own coordinates (see `faces` below).
+    vertices: Vec<Point2>,
+    /// Parallel to `triangles`: the same triangle as 3 `VertexId`s.
+    /// Storing both this and `triangles` (coordinates) is deliberate, not
+    /// an oversight — it keeps `triangles()`'s existing `&[Triangle2]`
+    /// signature exactly as it was before this structure existed, at the
+    /// cost of a few extra words per triangle.
+    faces: Vec<[VertexId; 3]>,
+    /// Parallel to `triangles`/`faces`: `face_neighbors[i][k]` is the face
+    /// across the edge **opposite vertex `k`** of face `i` — edge 0 is
+    /// `(faces[i][1], faces[i][2])` opposite `faces[i][0]`, edge 1 is
+    /// `(faces[i][2], faces[i][0])` opposite `faces[i][1]`, edge 2 is
+    /// `(faces[i][0], faces[i][1])` opposite `faces[i][2]` — `None` at the
+    /// triangulation's outer boundary. See
+    /// [`Triangulation2::neighboring_faces`].
+    face_neighbors: Vec<[Option<FaceId>; 3]>,
+    /// Canonical, deduplicated undirected edge list; `EdgeId(i)` indexes
+    /// here and into `edge_faces`.
+    edges: Vec<(VertexId, VertexId)>,
+    /// Parallel to `edges`: the 1 (boundary) or 2 (interior) face(s)
+    /// incident to that edge, in no particular order.
+    edge_faces: Vec<[Option<FaceId>; 2]>,
 }
 
 impl Triangulation2 {
-    /// The triangulation's triangles, in no particular order.
+    fn empty() -> Self {
+        Triangulation2 {
+            triangles: Vec::new(),
+            vertices: Vec::new(),
+            faces: Vec::new(),
+            face_neighbors: Vec::new(),
+            edges: Vec::new(),
+            edge_faces: Vec::new(),
+        }
+    }
+
+    /// The triangulation's triangles (coordinates only), in no particular
+    /// order.
     pub fn triangles(&self) -> &[Triangle2] {
         &self.triangles
     }
@@ -32,6 +80,63 @@ impl Triangulation2 {
     /// points).
     pub fn is_empty(&self) -> bool {
         self.triangles.is_empty()
+    }
+
+    /// Every vertex, paired with its coordinate.
+    pub fn vertices(&self) -> impl Iterator<Item = (VertexId, Point2)> + '_ {
+        self.vertices
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| (VertexId(i as u32), p))
+    }
+
+    /// Every undirected edge's id.
+    pub fn edges(&self) -> impl Iterator<Item = EdgeId> + '_ {
+        (0..self.edges.len()).map(|i| EdgeId(i as u32))
+    }
+
+    /// Every face's id.
+    pub fn faces(&self) -> impl Iterator<Item = FaceId> + '_ {
+        (0..self.faces.len()).map(|i| FaceId(i as u32))
+    }
+
+    /// `edge`'s two endpoints, in no particular order.
+    pub fn edge_vertices(&self, edge: EdgeId) -> (VertexId, VertexId) {
+        self.edges[edge.0 as usize]
+    }
+
+    /// The 1 (boundary) or 2 (interior) face(s) incident to `edge`, in no
+    /// particular order; `None` in the second slot at the boundary.
+    pub fn adjacent_faces(&self, edge: EdgeId) -> [Option<FaceId>; 2] {
+        self.edge_faces[edge.0 as usize]
+    }
+
+    /// `face`'s 3 vertices, counterclockwise.
+    pub fn face_vertices(&self, face: FaceId) -> [VertexId; 3] {
+        self.faces[face.0 as usize]
+    }
+
+    /// `face`'s neighbor across each edge; `None` at the triangulation's
+    /// outer boundary.
+    ///
+    /// Index `k` in the returned array is the face across the edge
+    /// **opposite** `face_vertices(face)[k]` (the edge *not* touching
+    /// that vertex): index 0 is opposite vertex 0 (the edge between
+    /// vertices 1 and 2), index 1 opposite vertex 1 (between vertices 2
+    /// and 0), index 2 opposite vertex 2 (between vertices 0 and 1).
+    /// `face_vertices` and `neighboring_faces` always agree on this
+    /// convention for the same `face` — a caller walking adjacency (e.g.
+    /// an edge-flip implementation) can rely on the same `k` indexing
+    /// both.
+    pub fn neighboring_faces(&self, face: FaceId) -> [Option<FaceId>; 3] {
+        self.face_neighbors[face.0 as usize]
+    }
+
+    /// Every edge with exactly one incident face — the triangulation's
+    /// outer boundary.
+    pub fn boundary_edges(&self) -> impl Iterator<Item = EdgeId> + '_ {
+        self.edges()
+            .filter(move |&e| self.adjacent_faces(e)[1].is_none())
     }
 }
 
@@ -104,9 +209,7 @@ pub fn delaunay2(points: &[Point2]) -> Triangulation2 {
     let pts = dedup_sorted(points);
     let hull = convex_hull2(&pts, HullBoundaryPoints::ExtremesOnly);
     if hull.len() < 3 {
-        return Triangulation2 {
-            triangles: Vec::new(),
-        };
+        return Triangulation2::empty();
     }
 
     // First 3 non-collinear points in sorted order. `pts[0]`/`pts[1]` fixed
@@ -139,13 +242,214 @@ pub fn delaunay2(points: &[Point2]) -> Triangulation2 {
         insert_point(&mut tris, &pts, i);
     }
 
-    let triangles = tris
+    build_topology(pts, tris)
+}
+
+/// Builds the public topology structure (§6B, ADR-006) from the raw
+/// vertex-index triangle list Bowyer-Watson produces internally, once
+/// every point has been inserted. `pts` becomes `Triangulation2::vertices`
+/// directly (already deduplicated by the caller); every point in it ends
+/// up as a vertex of at least one surviving real triangle (every inserted
+/// point's cavity re-triangulation always creates at least one triangle
+/// incident to it, and points are never later removed), so no further
+/// filtering of `pts` itself is needed here.
+fn build_topology(pts: Vec<Point2>, tris: Vec<[usize; 3]>) -> Triangulation2 {
+    let real: Vec<[usize; 3]> = tris
         .into_iter()
         .filter(|t| t.iter().all(|&idx| !is_ghost(idx)))
-        .map(|[a, b, c]| Triangle2::new(pts[a], pts[b], pts[c]))
         .collect();
 
-    Triangulation2 { triangles }
+    let triangles: Vec<Triangle2> = real
+        .iter()
+        .map(|&[a, b, c]| Triangle2::new(pts[a], pts[b], pts[c]))
+        .collect();
+    let faces: Vec<[VertexId; 3]> = real
+        .iter()
+        .map(|&[a, b, c]| [VertexId(a as u32), VertexId(b as u32), VertexId(c as u32)])
+        .collect();
+
+    // Canonical undirected-edge key: (min, max) by VertexId's own index,
+    // so the same edge visited from either incident face (in either
+    // winding position) hashes the same.
+    let edge_key = |u: VertexId, v: VertexId| -> (u32, u32) {
+        if u.0 <= v.0 { (u.0, v.0) } else { (v.0, u.0) }
+    };
+
+    let mut edge_index: HashMap<(u32, u32), usize> = HashMap::new();
+    let mut edges: Vec<(VertexId, VertexId)> = Vec::new();
+    // Every (FaceId, local_edge_index) bordering each canonical edge, in
+    // insertion order -- feeds both `edge_faces` and `face_neighbors`
+    // below. A well-formed planar triangulation never has more than 2 per
+    // edge; `Triangulation2::validate_topology` checks this independently
+    // rather than this builder asserting it.
+    let mut edge_incidences: Vec<Vec<(FaceId, usize)>> = Vec::new();
+
+    for (i, face) in faces.iter().enumerate() {
+        let face_id = FaceId(i as u32);
+        // Local edge k is opposite vertex k: k=0 -> (v1,v2), k=1 ->
+        // (v2,v0), k=2 -> (v0,v1) -- see `Triangulation2::neighboring_faces`.
+        let local_edges = [(face[1], face[2]), (face[2], face[0]), (face[0], face[1])];
+        for (k, &(u, v)) in local_edges.iter().enumerate() {
+            let key = edge_key(u, v);
+            let idx = *edge_index.entry(key).or_insert_with(|| {
+                edges.push((u, v));
+                edge_incidences.push(Vec::new());
+                edges.len() - 1
+            });
+            edge_incidences[idx].push((face_id, k));
+        }
+    }
+
+    let mut edge_faces: Vec<[Option<FaceId>; 2]> = vec![[None, None]; edges.len()];
+    let mut face_neighbors: Vec<[Option<FaceId>; 3]> = vec![[None, None, None]; faces.len()];
+    for (idx, incidences) in edge_incidences.iter().enumerate() {
+        for (slot, &(face_id, _)) in incidences.iter().take(2).enumerate() {
+            edge_faces[idx][slot] = Some(face_id);
+        }
+        if incidences.len() == 2 {
+            let (fa, ka) = incidences[0];
+            let (fb, kb) = incidences[1];
+            face_neighbors[fa.0 as usize][ka] = Some(fb);
+            face_neighbors[fb.0 as usize][kb] = Some(fa);
+        }
+    }
+
+    Triangulation2 {
+        triangles,
+        vertices: pts,
+        faces,
+        face_neighbors,
+        edges,
+        edge_faces,
+    }
+}
+
+/// A structural invariant violated in a [`Triangulation2`], found by
+/// [`Triangulation2::validate_topology`].
+///
+/// `pub` (not `pub(crate)`) so this crate's own `tests/` integration
+/// suite and `fuzz/` targets — both, per Rust's crate-privacy rules,
+/// external to `kika` for visibility purposes even though they live in
+/// this repository — can reach it, but `#[doc(hidden)]`: not yet a real,
+/// advertised public API commitment (ADR-006's "expose only when a real
+/// consumer needs it" — promoted only as far as Rust's own visibility
+/// rules require, not further).
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum TopologyError {
+    /// A face is not counterclockwise (or is degenerate).
+    FaceNotCcw(FaceId),
+    /// An edge is bordered by a number of faces other than 1 or 2 —
+    /// independently recomputed from `faces`, not read back from the
+    /// cached `edges`/`edge_faces` tables (which is exactly what this
+    /// check is verifying).
+    NonManifoldEdge {
+        u: VertexId,
+        v: VertexId,
+        incident_faces: usize,
+    },
+    /// `face_neighbors` isn't reciprocal for this edge: one side doesn't
+    /// point back at the other.
+    AdjacencyMismatch { face: FaceId, local_edge: usize },
+    /// The triangle count doesn't satisfy Euler's formula `2n - 2 - h` for
+    /// the (non-collinear) vertex set.
+    EulerFormulaViolated { triangles: usize, expected: isize },
+    /// An interior edge fails the local Delaunay (empty-circumcircle)
+    /// property: one side's opposite vertex lies strictly inside the
+    /// other side's circumcircle.
+    NotLocallyDelaunay { u: VertexId, v: VertexId },
+}
+
+impl Triangulation2 {
+    /// Checks every structural invariant this triangulation is supposed to
+    /// satisfy: every face counterclockwise, every edge bordered by
+    /// exactly 1 or 2 faces, `face_neighbors` reciprocal, Euler's formula,
+    /// and every interior edge locally Delaunay (empty-circumcircle, via
+    /// `incircle`). With no constrained edges yet (Phase 6C), "every
+    /// interior edge" and "every *unconstrained* interior edge" coincide
+    /// — this is the check Phase 6C's constrained Delaunay narrows to
+    /// unconstrained edges only, not a new one.
+    ///
+    /// Returns every violation found, not just the first: a real
+    /// regression often fails several checks at once from the same root
+    /// cause, and seeing all of them aids diagnosis. `pub` +
+    /// `#[doc(hidden)]` — see [`TopologyError`]'s doc comment for why.
+    #[doc(hidden)]
+    pub fn validate_topology(&self) -> Vec<TopologyError> {
+        let mut errors = Vec::new();
+
+        for (i, tri) in self.triangles.iter().enumerate() {
+            if tri.orientation() != Orientation::CounterClockwise {
+                errors.push(TopologyError::FaceNotCcw(FaceId(i as u32)));
+            }
+        }
+
+        // Independently recomputed edge incidence, from `faces` alone --
+        // this check must not trust `edges`/`edge_faces`, since that is
+        // exactly what it exists to verify.
+        let mut incidence: HashMap<(u32, u32), Vec<(FaceId, usize)>> = HashMap::new();
+        for (i, face) in self.faces.iter().enumerate() {
+            let face_id = FaceId(i as u32);
+            let local_edges = [(face[1], face[2]), (face[2], face[0]), (face[0], face[1])];
+            for (k, &(u, v)) in local_edges.iter().enumerate() {
+                let key = if u.0 <= v.0 { (u.0, v.0) } else { (v.0, u.0) };
+                incidence.entry(key).or_default().push((face_id, k));
+            }
+        }
+
+        for (&(u, v), incident) in &incidence {
+            if incident.len() != 1 && incident.len() != 2 {
+                errors.push(TopologyError::NonManifoldEdge {
+                    u: VertexId(u),
+                    v: VertexId(v),
+                    incident_faces: incident.len(),
+                });
+                continue;
+            }
+            if incident.len() == 2 {
+                let (fa, ka) = incident[0];
+                let (fb, kb) = incident[1];
+                let claims_a = self.face_neighbors[fa.0 as usize][ka] == Some(fb);
+                let claims_b = self.face_neighbors[fb.0 as usize][kb] == Some(fa);
+                if !claims_a || !claims_b {
+                    errors.push(TopologyError::AdjacencyMismatch {
+                        face: fa,
+                        local_edge: ka,
+                    });
+                }
+
+                let opposite_b = self.vertices[self.faces[fb.0 as usize][kb].0 as usize];
+                let opposite_a = self.vertices[self.faces[fa.0 as usize][ka].0 as usize];
+                let tri_a = self.triangles[fa.0 as usize];
+                let tri_b = self.triangles[fb.0 as usize];
+                let a_contains_b = incircle(tri_a.a(), tri_a.b(), tri_a.c(), opposite_b);
+                let b_contains_a = incircle(tri_b.a(), tri_b.b(), tri_b.c(), opposite_a);
+                if a_contains_b == Sign::Positive || b_contains_a == Sign::Positive {
+                    errors.push(TopologyError::NotLocallyDelaunay {
+                        u: VertexId(u),
+                        v: VertexId(v),
+                    });
+                }
+            }
+        }
+
+        if !self.vertices.is_empty() {
+            let hull = convex_hull2(&self.vertices, HullBoundaryPoints::KeepAllOnBoundary);
+            if hull.orientation() != Orientation::Collinear {
+                let n = self.vertices.len() as isize;
+                let h = hull.len() as isize;
+                let expected = 2 * n - 2 - h;
+                if self.triangles.len() as isize != expected {
+                    errors.push(TopologyError::EulerFormulaViolated {
+                        triangles: self.triangles.len(),
+                        expected,
+                    });
+                }
+            }
+        }
+
+        errors
+    }
 }
 
 /// Whether triangle `tri`'s circumcircle strictly contains `p`, handling
@@ -420,5 +724,105 @@ mod tests {
         ];
         let t = delaunay2(&pts);
         every_vertex_is_an_input_point(&pts, &t);
+    }
+
+    #[test]
+    fn topology_empty_and_single_triangle_do_not_panic() {
+        let empty = delaunay2(&[]);
+        assert_eq!(empty.vertices().count(), 0);
+        assert_eq!(empty.edges().count(), 0);
+        assert_eq!(empty.faces().count(), 0);
+        assert_eq!(empty.boundary_edges().count(), 0);
+        assert!(empty.validate_topology().is_empty());
+
+        let pts = [p(0.0, 0.0), p(4.0, 0.0), p(0.0, 4.0)];
+        let t = delaunay2(&pts);
+        assert_eq!(t.vertices().count(), 3);
+        assert_eq!(t.faces().count(), 1);
+        // A lone triangle: 3 edges, all boundary.
+        assert_eq!(t.edges().count(), 3);
+        assert_eq!(t.boundary_edges().count(), 3);
+        let face = t.faces().next().unwrap();
+        assert_eq!(t.neighboring_faces(face), [None, None, None]);
+        assert!(t.validate_topology().is_empty());
+    }
+
+    #[test]
+    fn topology_square_with_center_has_one_shared_edge_per_interior_pair() {
+        let pts = [
+            p(0.0, 0.0),
+            p(4.0, 0.0),
+            p(4.0, 4.0),
+            p(0.0, 4.0),
+            p(2.0, 2.0),
+        ];
+        let t = delaunay2(&pts);
+        assert_eq!(t.faces().count(), 4);
+        // 4 hull-boundary edges + 4 interior spokes to the center = 8.
+        assert_eq!(t.edges().count(), 8);
+        assert_eq!(t.boundary_edges().count(), 4);
+
+        // Every interior edge's two incident faces must each list the
+        // other as a neighbor, at the shared edge's local index.
+        for edge in t.edges() {
+            let adj = t.adjacent_faces(edge);
+            if let [Some(fa), Some(fb)] = adj {
+                let neighbors_a = t.neighboring_faces(fa);
+                let neighbors_b = t.neighboring_faces(fb);
+                assert!(neighbors_a.contains(&Some(fb)));
+                assert!(neighbors_b.contains(&Some(fa)));
+            }
+        }
+        assert!(t.validate_topology().is_empty());
+    }
+
+    #[test]
+    fn face_vertices_matches_triangles_coordinates() {
+        let pts = [
+            p(0.0, 0.0),
+            p(4.0, 0.0),
+            p(4.0, 4.0),
+            p(0.0, 4.0),
+            p(2.0, 2.0),
+        ];
+        let t = delaunay2(&pts);
+        let vertex_coords: std::collections::HashMap<VertexId, Point2> = t.vertices().collect();
+        for (face, tri) in t.faces().zip(t.triangles()) {
+            let [v0, v1, v2] = t.face_vertices(face);
+            assert_eq!(vertex_coords[&v0], tri.a());
+            assert_eq!(vertex_coords[&v1], tri.b());
+            assert_eq!(vertex_coords[&v2], tri.c());
+        }
+    }
+
+    /// Deliberately breaks `face_neighbors`' reciprocity to confirm
+    /// `validate_topology` actually catches it, not just passes vacuously
+    /// on well-formed input.
+    #[test]
+    fn validate_topology_catches_broken_adjacency_reciprocity() {
+        let pts = [
+            p(0.0, 0.0),
+            p(4.0, 0.0),
+            p(4.0, 4.0),
+            p(0.0, 4.0),
+            p(2.0, 2.0),
+        ];
+        let mut t = delaunay2(&pts);
+        assert!(t.validate_topology().is_empty());
+
+        // Sever one direction of one interior adjacency.
+        let broken = t.face_neighbors[0]
+            .iter()
+            .position(|n| n.is_some())
+            .expect("triangle 0 has at least one interior neighbor");
+        t.face_neighbors[0][broken] = None;
+
+        let errors = t.validate_topology();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, TopologyError::AdjacencyMismatch { .. })),
+            "expected an AdjacencyMismatch, got {errors:?}"
+        );
     }
 }

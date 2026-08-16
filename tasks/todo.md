@@ -111,6 +111,24 @@
       `README.md`/`docs/compatibility.md` both described the CGAL
       differential-test harness and CI as further along than they
       actually were.
+- [x] Phase 6B: `Triangulation2` adjacency structure (ADR-006, indexed
+      triangle adjacency — not half-edge/quad-edge). `VertexId`/`EdgeId`/
+      `FaceId` plus `vertices`/`edges`/`faces`/`edge_vertices`/
+      `adjacent_faces`/`face_vertices`/`neighboring_faces`/
+      `boundary_edges`, all `pub`, additive to the existing `triangles()`
+      contract. Internal `validate_topology` (CCW, edge-manifold
+      incidence recomputed independently rather than trusting its own
+      cached tables, adjacency reciprocity, Euler's formula, per-edge
+      local-Delaunay) is `pub` + `#[doc(hidden)]` — not `pub(crate)`,
+      since this repository's own `tests/` and `fuzz/` are separate
+      crates for Rust visibility purposes and couldn't otherwise reach it.
+      A static, post-construction snapshot: no generational-ID arena
+      needed (ADR-006's arena proposal is scoped to construction-time
+      mutation, which this phase didn't touch — `insert_point` is
+      unchanged). Deliberately caught a self-inflicted stale-build-cache
+      false negative during development (a real code path silently wasn't
+      being recompiled) by re-testing after a clean rebuild rather than
+      trusting the first red result at face value.
 - [x] fuzz targets (§12), first pass — 4 libFuzzer targets under `fuzz/`
       (`segment_intersection`, `convex_hull`, `delaunay_insert`,
       `triangulation_topology_validator`), prioritizing the combinatorial
@@ -143,23 +161,23 @@
 - [ ] `incircle`/`insphere` safe-magnitude-range bounds
       (`docs/numerical-model.md`) are empirically-checked, not tightly
       derived on the floor side
-- [ ] `Triangulation2` exposes only a flat triangle list, no
-      adjacency/half-edge structure — deliberate (§6: split into a real
-      structure only when a consumer actually needs neighbor queries).
-      Design for closing this before Phase 6 is now proposed in ADR-006
-      (indexed triangle adjacency, generational IDs, migration plan) —
-      not yet implemented, design only
-
 ## Backlog (later phases, not started)
 
-- [ ] Phase 6: constrained Delaunay, polygon Boolean. Pre-design done:
-      ADR-006 (triangulation adjacency structure), ADR-004's Phase 6
-      re-evaluation (float+certificate is sufficient for Phase 6a/CDT,
-      which needs no new construction at all; Phase 6b/overlay needs a
-      lazily-exact representation, expansion-backed homogeneous
-      coordinates leading, rational-backed as an approval-gated fallback
-      — neither implemented yet, both explicitly left open pending Phase
-      6b's actual algorithm). Implementation not started.
+- [ ] Phase 6C: constrained Delaunay (narrow scope — non-crossing
+      constraints between existing input vertices only; no automatic
+      constraint splitting, Steiner points, refinement, or quality
+      meshing). Pre-design done: ADR-006 (triangulation adjacency
+      structure, now implemented as Phase 6B), ADR-004's Phase 6
+      re-evaluation (float+certificate is sufficient — CDT needs no new
+      construction at all). Not started.
+- [ ] Phase 6D: simple-polygon triangulation via Phase 6C's CDT (no holes
+      in the initial version). Not started.
+- [ ] Phase 6 (polygon Boolean, overlay): ADR-004's Phase 6 re-evaluation
+      found Phase 6b/overlay needs a lazily-exact representation,
+      expansion-backed homogeneous coordinates leading, rational-backed as
+      an approval-gated fallback — neither implemented, both explicitly
+      left open pending the overlay algorithm's actual needs. Not started,
+      deliberately after 6C/6D per the user's explicit sequencing.
 - [ ] CGAL differential-test harness (separate program, §10) — currently
       environment-blocked, not just unstarted: CGAL/pkg-config are not
       installed in this development environment

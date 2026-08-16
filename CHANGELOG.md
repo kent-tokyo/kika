@@ -20,6 +20,20 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   `docs/compatibility.md`'s stale "CI not yet exercised"/Phase-1-era test
   count and public API list.
 
+- `Triangulation2` adjacency structure (Phase 6B, ADR-006): `VertexId`,
+  `EdgeId`, `FaceId` and `vertices`/`edges`/`faces`/`edge_vertices`/
+  `adjacent_faces`/`face_vertices`/`neighboring_faces`/`boundary_edges` —
+  a static, post-construction indexed-triangle-adjacency snapshot (no
+  half-edge/quad-edge generality; `flip`/constraint-marking deferred to
+  Phase 6C). `triangles()`'s original coordinate-only contract is
+  unchanged; the new methods are purely additive, built alongside the
+  existing coordinate list rather than replacing it. Includes an internal
+  `validate_topology` (CCW, edge-manifold incidence, adjacency
+  reciprocity, Euler's formula, per-edge local-Delaunay), which
+  `tests/differential/delaunay2.rs` and
+  `fuzz/fuzz_targets/triangulation_topology_validator.rs` now call
+  directly instead of duplicating the same checks ad hoc.
+
 - Repository skeleton, dual `MIT OR Apache-2.0` license, ADR-001..005.
 - Exact expansion arithmetic core (`predicates::expansion`, internal):
   `two_sum`, `split`, `two_product`, `product_expansion`,

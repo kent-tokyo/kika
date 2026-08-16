@@ -1,7 +1,12 @@
 # ADR-006: Triangulation adjacency structure for Phase 6
 
-Status: Proposed (design only — Phase 6 is not implemented yet; this ADR
-does not change any public API)
+Status: Decided and implemented for Phase 6A/6B (indexed triangle
+adjacency, as recommended below). Phase 6B added `VertexId`/`EdgeId`/
+`FaceId` and the 9 topology-query methods plus an internal
+`validate_topology` — see `src/triangulation/delaunay2.rs` and
+`src/triangulation/ids.rs`. Phase 6C (constrained Delaunay, using this
+structure) and Phase 6b's overlay structure (still open, see below) are
+not implemented yet.
 
 ## Context
 
@@ -198,45 +203,60 @@ generation, so a stale `(index, generation)` handle from before the
 deletion is detectably invalid rather than silently aliasing a
 later-reused slot with unrelated data.
 
+**Scope actually implemented for Phase 6B (below): this arena, not
+needed.** `Triangulation2` gained the query API and adjacency as a
+**static, post-construction snapshot** — `delaunay2`'s own
+`insert_point`/cavity-construction internals were left untouched (still
+the `swap_remove`-based `Vec<[usize; 3]>` from Phase 4). Since a completed
+`Triangulation2` is immutable (no public mutation API exists), plain
+indices into fixed-size parallel arrays are sufficient and correct for
+`VertexId`/`EdgeId`/`FaceId` — the generational arena above remains a
+recommendation for *if and when* Bowyer-Watson's own construction-time
+loop is refactored to build adjacency incrementally (e.g. for the
+point-location optimization noted under "indexed triangle adjacency"
+above), not something Phase 6B needed or built.
+
 ## Migration plan
 
 No public API break at any step (new public methods are additive; the
 existing `triangles()`/`len()`/`is_empty()` keep their exact signatures
-and behavior).
+and behavior). **Implemented for Phase 6B** — this plan is now a record of
+what happened, not a proposal:
 
-1. Replace `tris: Vec<[usize; 3]>` with the slot-based
-   `Vec<Slot<TriangleRecord>>`, `TriangleRecord` holding 3 vertex indices
-   + 3 neighbor slot-handles (`Option<TriangleId>`, `None` at the
-   boundary) + a 3-bit constraint-edge flag. Update `insert_point`'s
-   cavity construction to maintain neighbor links as it removes/creates
-   triangles (it already computes the boundary edge set needed to do
-   this — see "Fit with current code" above), instead of discarding that
-   information.
-2. `Triangulation2::triangles() -> &[Triangle2]` becomes a computed view
-   (iterate live slots, resolve vertex indices to `Triangle2` via the
-   stored point slice) rather than a stored field — public behavior
-   unchanged.
-3. Add a reusable, `pub(crate)` (promoted to `pub` only once a real
-   external consumer needs it, per this crate's established "don't expose
-   before needed" pattern) `validate_topology(&self) -> Result<(),
-   TopologyError>` implementing exactly the checks this session's
-   `fuzz/fuzz_targets/triangulation_topology_validator.rs` already
-   prototypes ad hoc from the outside (edge-use-count is 1 or 2, Euler's
-   formula `2n - 2 - h`): the fuzz target becomes the executable spec for
-   this validator, and should be simplified to call it directly once it
-   exists, rather than keeping two independent implementations of the
-   same check.
-4. Add `neighbor`, `boundary_edges`, `is_constrained`, `mark_constrained`,
-   `flip` as `pub(crate)` methods, grown incrementally as CDT's actual
-   implementation needs each one — not speculatively built ahead of that
-   need, per this project's own established discipline throughout Phases
-   1-5.
-5. Only once CDT (and, if applicable, Boolean/overlay) has a concrete
-   consumer for a given method does it get considered for promotion to
-   `pub` — a genuinely new public API surface, which (per AGENTS.md §19)
-   stays a normal Green/Yellow implementation decision as long as it's
-   additive, but should be called out explicitly when it happens rather
-   than silently widened.
+1. ~~Replace `tris: Vec<[usize; 3]>` with the slot-based
+   `Vec<Slot<TriangleRecord>>`~~ — not needed; see "ID stability" above.
+   Instead, `build_topology` (in `delaunay2.rs`) derives the adjacency
+   structure once, after Bowyer-Watson's insertion loop finishes, from the
+   already-computed final `Vec<[usize; 3]>` — plain parallel arrays
+   (`faces`, `face_neighbors`, `edges`, `edge_faces`), no slot arena.
+2. `Triangulation2::triangles() -> &[Triangle2]` **stays a stored field**,
+   not a computed view — kept deliberately redundant with the new
+   index-based `faces` field (both describe the same triangles) rather
+   than changing the return type, since `&[Triangle2]` cannot be
+   lazily computed without breaking the signature. See the struct's own
+   doc comment for why this redundancy is intentional.
+3. Added `pub` + `#[doc(hidden)]` (not `pub(crate)` — Rust's crate-privacy
+   rules make `pub(crate)` invisible to this repository's own `tests/`
+   integration suite and `fuzz/` targets, which are separate crates
+   despite living alongside `kika`; `#[doc(hidden)]` keeps it off
+   downstream users' radar without blocking the crate's own test/fuzz
+   coverage) `validate_topology(&self) -> Vec<TopologyError>` — broader
+   than originally sketched: also checks adjacency reciprocity and
+   per-edge local-Delaunay, not just edge-count and Euler's formula.
+   `fuzz/fuzz_targets/triangulation_topology_validator.rs` and
+   `tests/differential/delaunay2.rs` were both simplified to call it
+   directly, collapsing what used to be independent ad hoc
+   reimplementations of the same checks.
+4. `vertices`, `edges`, `faces`, `edge_vertices`, `adjacent_faces`,
+   `face_vertices`, `neighboring_faces`, `boundary_edges` added as real
+   `pub` methods (not `pub(crate)`) — Phase 6C is expected to need them
+   from outside this module (a future `constrained_delaunay2` function),
+   and they're read-only queries over an already-immutable structure, not
+   a speculative mutation API. `flip`/`mark_constrained`/`is_constrained`
+   were **not** added — those need Phase 6C's actual constraint-recovery
+   algorithm to shape their signatures correctly, exactly as originally
+   planned; building them now would be the same speculative-generality
+   mistake this ADR argues against elsewhere.
 
 ## Revisit when
 

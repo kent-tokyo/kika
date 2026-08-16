@@ -20,10 +20,7 @@
 
 use std::collections::HashSet;
 
-use kika::{
-    HullBoundaryPoints, Orientation, Point2, Sign, Triangulation2, convex_hull2, delaunay2,
-    incircle, orient2d,
-};
+use kika::{HullBoundaryPoints, Point2, Sign, Triangulation2, convex_hull2, delaunay2, incircle};
 
 struct Xorshift64(u64);
 impl Xorshift64 {
@@ -51,16 +48,6 @@ fn pt(x: f64, y: f64) -> Point2 {
 
 fn key(p: Point2) -> (u64, u64) {
     (p.x().to_bits(), p.y().to_bits())
-}
-
-fn all_ccw_and_nondegenerate(t: &Triangulation2) {
-    for tri in t.triangles() {
-        assert_eq!(
-            orient2d(tri.a(), tri.b(), tri.c()),
-            Orientation::CounterClockwise,
-            "triangle {tri:?} is not strictly CCW"
-        );
-    }
 }
 
 fn every_vertex_is_an_input_point(points: &[Point2], t: &Triangulation2) {
@@ -121,34 +108,26 @@ fn watertight_and_matches_hull(points: &[Point2], t: &Triangulation2) {
     );
 }
 
-/// `2n - 2 - h` (Euler's formula for a full triangulation) always holds,
-/// for *any* input including degenerate collinear boundary/interior
-/// points — but `h` must be the count of every point on the convex hull
-/// boundary (`KeepAllOnBoundary`), not just strict corners
-/// (`ExtremesOnly`): a collinear boundary point still needs to appear as
-/// its own triangulation vertex, splitting what would otherwise be one
-/// hull edge into two.
-fn triangle_count_matches_euler_formula(points: &[Point2], t: &Triangulation2) {
-    let distinct = {
-        let mut d: Vec<(u64, u64)> = points.iter().map(|&p| key(p)).collect();
-        d.sort_unstable();
-        d.dedup();
-        d.len()
-    };
-    let h = convex_hull2(points, HullBoundaryPoints::KeepAllOnBoundary).len();
-    assert_eq!(t.len(), 2 * distinct - 2 - h);
-}
-
 fn check_all_properties(points: &[Point2]) {
     let t = delaunay2(points);
     if t.is_empty() {
         return;
     }
-    all_ccw_and_nondegenerate(&t);
+    // CCW-ness, edge-manifold incidence, adjacency reciprocity, Euler's
+    // formula, and local-Delaunay are all `validate_topology`'s job now
+    // (§6B, ADR-006) -- this used to be 2 separate ad hoc implementations
+    // here (`all_ccw_and_nondegenerate`, `triangle_count_matches_euler_formula`)
+    // duplicating exactly what the internal validator checks; ADR-006's
+    // migration plan called for collapsing that duplication once the
+    // validator existed, not keeping two copies of the same check.
+    assert!(
+        t.validate_topology().is_empty(),
+        "validate_topology found violations: {:?}",
+        t.validate_topology()
+    );
     every_vertex_is_an_input_point(points, &t);
     empty_circumcircle_property(points, &t);
     watertight_and_matches_hull(points, &t);
-    triangle_count_matches_euler_formula(points, &t);
 }
 
 fn shuffled(points: &[Point2], rng: &mut Xorshift64) -> Vec<Point2> {

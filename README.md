@@ -134,6 +134,14 @@ in pure Rust, that's what Phase 1 of Kika is.
   documented in [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)
   alongside every other degenerate case (collinear boundary points, points
   exactly on an existing edge).
+* `Triangulation2`'s adjacency structure — `VertexId`/`EdgeId`/`FaceId`
+  and `vertices`/`edges`/`faces`/`edge_vertices`/`adjacent_faces`/
+  `face_vertices`/`neighboring_faces`/`boundary_edges`, a **static,
+  post-construction snapshot** of the indexed-triangle-adjacency structure
+  (no half-edge/quad-edge generality, per ADR-006's comparison — `flip`
+  and constraint marking are deferred to Phase 6C, which will shape their
+  real signatures). `triangles()` keeps its original coordinate-only
+  contract unchanged; the new methods are purely additive.
 
 All four predicates complete v0.1's robust-predicate scope; the primitives,
 intersections, polygon, convex hull, and Delaunay triangulation above
@@ -228,7 +236,7 @@ being finalized yet — see ADR-004.
 | Segment intersection | Implemented — classification exact, `Proper` construction correctly rounded (ADR-004) |
 | Convex hull | Implemented — fully exact |
 | Delaunay triangulation | Implemented — fully exact, no synthetic coordinates |
-| Triangulation adjacency (vertex/edge/face queries) | Planned — design proposed (ADR-006), not implemented |
+| Triangulation adjacency (vertex/edge/face queries) | Implemented — `VertexId`/`EdgeId`/`FaceId`, neighbor/boundary queries, internal topology validator (ADR-006) |
 | Constrained Delaunay | Planned — not implemented |
 | Polygon Boolean | Not implemented — exactness model still open, see ADR-004 |
 | 3D mesh operations | Not implemented |

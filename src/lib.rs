@@ -24,4 +24,4 @@ pub use primitives::{
     Aabb2, Aabb3, Point2, Point3, PointSegmentRelation, PointTriangleRelation, Segment2, Triangle2,
     Triangle3, Vector2, Vector3,
 };
-pub use triangulation::{Triangulation2, delaunay2};
+pub use triangulation::{EdgeId, FaceId, Triangulation2, VertexId, delaunay2};
