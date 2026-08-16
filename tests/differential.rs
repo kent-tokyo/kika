@@ -4,3 +4,5 @@
 
 #[path = "differential/orient2d.rs"]
 mod orient2d;
+#[path = "differential/orient3d.rs"]
+mod orient3d;

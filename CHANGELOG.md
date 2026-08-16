@@ -16,3 +16,7 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 - `orient2d`: floating-point filter with a computed error bound, falling
   back to exact expansion arithmetic. Checked against an independent
   exact-rational oracle in `tests/differential/orient2d.rs`.
+- `scale_expansion` (expansion × scalar) exact-arithmetic primitive.
+- `orient3d`: same filter + exact-fallback design as `orient2d`. Checked
+  against an independent exact-rational oracle in
+  `tests/differential/orient3d.rs`.

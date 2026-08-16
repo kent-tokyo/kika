@@ -105,6 +105,23 @@ pub(crate) fn expansion_sum(base: &[f64], addend: &[f64]) -> Vec<f64> {
     result
 }
 
+/// The exact expansion for `e * s` (a nonoverlapping expansion times a
+/// single `f64` scalar): distributes the multiplication over each
+/// component of `e` via [`product_expansion`], then merges the results
+/// with [`expansion_sum`].
+///
+/// ponytail: same O(n*m) tradeoff as [`expansion_sum`] (not Shewchuk's
+/// linear-time interleaved `scale-expansion`); fine for Phase 1's small,
+/// fixed-size determinant expansions. Upgrade together if profiling ever
+/// shows it matters (§13).
+pub(crate) fn scale_expansion(e: &[f64], s: f64) -> Vec<f64> {
+    let mut result: Vec<f64> = vec![];
+    for &e_i in e {
+        result = expansion_sum(&result, &product_expansion(e_i, s));
+    }
+    result
+}
+
 /// The exact sign of a nonoverlapping expansion: the sign of its most
 /// significant (last) nonzero component. See `docs/numerical-model.md`.
 pub(crate) fn expansion_sign(e: &[f64]) -> Sign {
@@ -316,6 +333,25 @@ mod tests {
         let merged = expansion_sum(&a, &b);
         let expected = exact(123.456) * exact(789.012) + exact(-0.001) * exact(999999.999);
         assert_eq!(expansion_exact_sum(&merged), expected);
+    }
+
+    #[test]
+    fn scale_expansion_is_exact() {
+        // A 2-term expansion (from product_expansion) times a scalar,
+        // checked against the independent bigint oracle: this is the
+        // building block orient3d/incircle/insphere use for triple/
+        // quadruple products.
+        let pair = product_expansion(123.456, -789.012);
+        let pair_exact = exact(123.456) * exact(-789.012);
+        for &s in &[2.0_f64, -3.5, 0.001, 1e10, 1e-10, core::f64::consts::PI] {
+            let scaled = scale_expansion(&pair, s);
+            let expected = pair_exact.clone() * exact(s);
+            assert_eq!(
+                expansion_exact_sum(&scaled),
+                expected,
+                "scale_expansion(pair, {s})"
+            );
+        }
     }
 
     #[test]

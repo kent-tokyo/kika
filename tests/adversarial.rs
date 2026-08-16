@@ -4,3 +4,5 @@
 
 #[path = "adversarial/orient2d.rs"]
 mod orient2d;
+#[path = "adversarial/orient3d.rs"]
+mod orient3d;

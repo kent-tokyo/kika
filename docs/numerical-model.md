@@ -78,7 +78,14 @@ etc.) and summarized below as each predicate is implemented:
   independent `num-rational` oracle across random points, extreme and
   mixed scales, and inputs deliberately walked across the filter's
   conclusive/inconclusive boundary near collinearity.
-* `orient3d`, `incircle`, `insphere`: same pattern, added as each lands.
+* `orient3d`: implemented. See `ORIENT3D_ERR_BOUND_FACTOR` in
+  `src/predicates/orient3d.rs`. Exact fallback uses `scale_expansion`
+  (new primitive: an expansion times a scalar, needed for the
+  triple-product terms of a 3x3 determinant) on top of the same
+  `product_expansion`/`expansion_sum`/`expansion_sign` building blocks.
+  Verified against an independent oracle in
+  `tests/differential/orient3d.rs`.
+* `incircle`, `insphere`: same pattern, added as each lands.
 
 If `|determinant| > error_bound`, the sign of `determinant` is provably the
 true sign and is returned without any fallback. Otherwise, the exact
