@@ -4,6 +4,8 @@
 
 #[path = "differential/convex_hull2.rs"]
 mod convex_hull2;
+#[path = "differential/delaunay2.rs"]
+mod delaunay2;
 #[path = "differential/incircle.rs"]
 mod incircle;
 #[path = "differential/insphere.rs"]

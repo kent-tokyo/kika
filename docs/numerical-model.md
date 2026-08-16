@@ -399,6 +399,54 @@ see `docs/degeneracy-policy.md`'s convex-hull table and `tasks/lessons.md`
 for the self-retracing-chain bug found (and the false-positive detection
 heuristic ruled out) while designing it, before any code existed.
 
+## Phase 4: Delaunay triangulation avoids synthetic coordinates entirely
+
+`delaunay2` (Bowyer-Watson incremental insertion) has the same exactness
+property as `convex_hull2`: every vertex in the returned `Triangulation2`
+is copied directly from the input, never computed. The first
+implementation attempt did *not* have this property cleanly — it seeded
+the algorithm with a synthetic "super-triangle" (three coordinates derived
+from the input's bounding box, scaled by a fixed multiplier, stripped from
+the output at the end). That version passed every hand-written unit test,
+including several specifically targeting degenerate cases, but a property
+test on *ordinary* random point clouds (not a constructed adversarial
+case) found a real bug: for a 4-point input (3 forming a hull triangle, 1
+strictly interior), it produced 2 triangles instead of the
+topologically-required 3, silently dropping a triangle.
+
+Root cause: whether a super-triangle vertex "shields" a real internal edge
+from getting its second real triangle is governed by the *sign* of an
+`incircle` test involving that synthetic vertex, and that sign is not
+scale-stable. For the minimized 4-point case, the relevant `incircle`
+value was negative at a 20x-bounding-box-diagonal scale and flipped
+positive only around 100x — with no universally-safe multiplier, because
+the governing ratio is bounding-box diagonal to *smallest relevant point
+spacing*, which is unbounded (a tight cluster of points can sit anywhere
+inside an arbitrarily large bounding box). This is a sharper version of
+the "near-collinear cluster has unbounded circumradius" problem — it does
+not require an adversarially-constructed input, only an unlucky one.
+
+Fixed by removing the synthetic coordinate entirely: `delaunay2` bootstraps
+from the first 3 non-collinear *real* points (found by scanning the
+canonically-sorted input) and represents "outside the current triangulation"
+with a single symbolic ghost vertex (no coordinate at all) that always has
+a closed triangle fan around it, exactly like a real interior point would.
+A triangle with the ghost as one of its three vertices reduces its
+circumcircle test to an exact `orient2d` half-plane test against its one
+real edge (the limit of a circle whose third point recedes to infinity) —
+see `is_bad` in `src/triangulation/delaunay2.rs`. No arithmetic anywhere in
+the algorithm ever touches a coordinate that isn't a real input point, so
+there is no scale-dependent tradeoff left to document: the fix is exact,
+not merely "less likely to fail" (verified down to a perpendicular spread
+of `1e-200` relative to a span of `10.0` in
+`tests/differential/delaunay2.rs`'s `near_collinear_cluster_with_a_far_outlier`,
+and against the original minimized failing case in
+`tests/regression/delaunay2.rs`).
+
+Degenerate cases (collinear boundary points, cocircular points) are
+handled explicitly — see `docs/degeneracy-policy.md`'s Delaunay
+triangulation table.
+
 ## What is *not* claimed
 
 This is a two-stage (filter + exact) model, not Shewchuk's three-stage

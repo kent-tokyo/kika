@@ -1,6 +1,6 @@
 # Todo
 
-## Done (Phase 0 + Phase 1 + Phase 2 + Phase 3)
+## Done (Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4)
 
 - [x] Phase 0: name-collision check, ecosystem survey, ADR-001..005
 - [x] Expansion arithmetic core (`two_sum`, `split`, `two_product`,
@@ -51,6 +51,26 @@
       idempotence) against `orient2d`/`Segment2::relation_to`, not a
       from-scratch `BigRational` reimplementation — see
       `tests/differential/convex_hull2.rs`'s module doc for why.
+- [x] `triangulation::delaunay2` (Bowyer-Watson): `Triangulation2`, exact
+      throughout via a single symbolic "point at infinity" ghost vertex
+      instead of a synthetic bounding-triangle coordinate (no scale-
+      dependent tradeoff anywhere — verified down to a `1e-200`
+      perpendicular cluster spread). Cocircular-point tie-break
+      documented (`Sign::Zero` circumcircle boundary is not "bad").
+      Checked via structural property tests (empty-circumcircle property,
+      CCW/non-degenerate triangles, watertight mesh matching the convex
+      hull, Euler's formula, permutation invariance) — see
+      `tests/differential/delaunay2.rs`.
+- [x] A real bug, this one caught by property testing on ordinary
+      (non-adversarial) input rather than by hand-tracing or an
+      adversarial construction: an initial `delaunay2` design using a
+      synthetic super-triangle silently dropped a triangle for a plain
+      4-point input, because whether the super-triangle shields a real
+      edge is scale-dependent with no safe fixed multiplier. Fixed by
+      removing the synthetic coordinate entirely (single ghost vertex,
+      see above) — see `tasks/lessons.md` for the full diagnostic trail,
+      including a design mistake in the first fix attempt (three ghosts
+      instead of one) caught by hand-tracing before it shipped.
 
 ## Known gaps, not yet closed (see docs/compatibility.md)
 
@@ -67,10 +87,13 @@
       construction (ordinary `f64` parametric interpolation) — Phase 5
       territory, not skipped ahead of, but a real gap for callers who
       need exact intersection coordinates today
+- [ ] `Triangulation2` exposes only a flat triangle list, no
+      adjacency/half-edge structure — deliberate (§6: split into a real
+      structure only when a consumer actually needs neighbor queries),
+      but constrained Delaunay (Phase 6) will likely need one
 
 ## Backlog (later phases, not started)
 
-- [ ] Phase 4: 2D Delaunay triangulation
 - [ ] Phase 5: exact construction model (re-open ADR-004; this is also
       where `segment_intersection`'s `Proper` case gets a real fix)
 - [ ] Phase 6: constrained Delaunay, polygon Boolean

@@ -145,7 +145,11 @@ fn normalize_zero(v: f64) -> f64 {
     if v == 0.0 { 0.0 } else { v }
 }
 
-fn dedup_sorted(points: &[Point2]) -> Vec<Point2> {
+/// Sorts and collapses exact-equality duplicates. `pub(crate)`, not just
+/// module-private: `triangulation::delaunay2` reuses this same dedup+sort
+/// pass rather than re-deriving the `-0.0`/`0.0` normalization fix (see
+/// `tasks/lessons.md`).
+pub(crate) fn dedup_sorted(points: &[Point2]) -> Vec<Point2> {
     let mut pts: Vec<Point2> = points.to_vec();
     pts.sort_by(|a, b| {
         normalize_zero(a.x())

@@ -8,6 +8,7 @@ mod intersections;
 mod polygon;
 mod predicates;
 mod primitives;
+mod triangulation;
 
 pub use error::KikaError;
 pub use hull::{HullBoundaryPoints, convex_hull2};
@@ -20,3 +21,4 @@ pub use primitives::{
     Aabb2, Aabb3, Point2, Point3, PointSegmentRelation, PointTriangleRelation, Segment2, Triangle2,
     Triangle3, Vector2, Vector3,
 };
+pub use triangulation::{Triangulation2, delaunay2};

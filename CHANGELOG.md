@@ -74,6 +74,24 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   reimplementation — see `tests/differential/convex_hull2.rs`.
 
   This completes Phase 3 (2D Convex Hull).
+- `delaunay2` / `Triangulation2`: 2D Delaunay triangulation via Bowyer-Watson
+  incremental insertion. "Outside the triangulation" is represented by a
+  single symbolic ghost vertex (no coordinate), not a synthetic bounding
+  triangle — a triangle carrying the ghost reduces its circumcircle test to
+  an exact `orient2d` half-plane check against its one real edge. Fully
+  exact like `convex_hull2`: every returned vertex is copied from an
+  original input `Point2`, and unlike a bounding-triangle approach there is
+  no scale-dependent tradeoff anywhere in the algorithm (verified down to a
+  perpendicular cluster spread of `1e-200` relative to a span of `10.0`).
+  Cocircular points (no unique Delaunay triangulation exists) get a
+  documented, deterministic tie-break: a point exactly on a circumcircle
+  boundary does not invalidate that triangle. Checked via structural
+  property tests (empty-circumcircle property, CCW/non-degenerate
+  triangles, watertight mesh matching the convex hull boundary, Euler's
+  formula `2n - 2 - h`, permutation invariance) — see
+  `tests/differential/delaunay2.rs`.
+
+  This completes Phase 4 (2D Delaunay Triangulation).
 
 ### Fixed
 
@@ -108,3 +126,15 @@ anything public regressed)*
   point on that line. Fixed with an explicit degenerate case using
   `Segment2::relation_to` (exact range membership); see
   `tests/regression/point_in_triangle.rs` and `docs/degeneracy-policy.md`.
+- An early `delaunay2` implementation seeded Bowyer-Watson with a synthetic
+  "super-triangle" (a bounding-box-derived coordinate, scaled and stripped
+  from the output). Passed every hand-written unit test, but a property
+  test on ordinary random point clouds found it silently dropping a
+  triangle (2 instead of the topologically-required 3 for a 4-point input:
+  3 hull, 1 interior) — whether a super-triangle vertex shields a real edge
+  from its second real triangle is scale-dependent, with no universally
+  safe multiplier (the governing ratio, bounding-box diagonal to smallest
+  relevant point spacing, is unbounded). Fixed by replacing the synthetic
+  coordinate with a single symbolic "point at infinity" ghost vertex and an
+  exact `orient2d`-based reduction; see `tests/regression/delaunay2.rs` and
+  `docs/numerical-model.md`.

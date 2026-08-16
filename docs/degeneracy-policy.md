@@ -53,10 +53,20 @@ smallest input point (by `(x, y)`), independent of input order — verified by
 permutation-invariance property tests
 (`tests/differential/convex_hull2.rs`).
 
+## Delaunay triangulation degeneracies (Phase 4, implemented)
+
+| Case | Behavior |
+|---|---|
+| Fewer than 3 distinct points, or all points collinear | `delaunay2` returns an empty `Triangulation2` (0 triangles) — no valid 2D triangulation exists (matches `convex_hull2`'s `hull.len() < 3` check). |
+| Duplicate points (exact coordinate equality) | Collapsed before triangulating, via the same `hull::dedup_sorted` pass `convex_hull2` uses; do not affect the result. |
+| Point exactly on an *interior* edge shared by two triangles | Both adjacent triangles are invalidated (a point on a chord is geometrically inside both circles that have that chord — a chord-of-a-circle argument, not a special case in the code) and correctly split into 4 total, covering the same area with no gap or overlap. See `tests/differential/delaunay2.rs`'s `point_on_interior_edge_splits_both_adjacent_triangles`. |
+| Point exactly on a *hull-boundary* edge | Splits the one triangle touching that edge into 2. See `point_on_hull_boundary_edge_splits_one_triangle`. |
+| 4 or more points exactly cocircular | More than one triangulation satisfies the empty-circumcircle (Delaunay) property simultaneously — there is no single "the" Delaunay triangulation for a cocircular point set. **Tie-break rule**: a point exactly on a triangle's circumcircle boundary (`Sign::Zero` from `incircle`) does not make that triangle "bad" — it is not removed/replaced. Combined with `delaunay2`'s canonical sort-before-insertion, this makes the result a deterministic function of the input *set* (not insertion order) — but it is **not** the mathematically-canonical or unique triangulation, and does not necessarily match another Delaunay implementation's choice on the same cocircular input (e.g. which diagonal a cocircular quad's two triangles use). See `tests/differential/delaunay2.rs`'s `random_points_on_a_circle` and `tests/regression/delaunay2.rs`. |
+| Near-collinear point cluster plus a far-off point | Handled exactly, at any scale — see `docs/numerical-model.md`'s Phase 4 section for why this was a real, found bug (not just a theoretical concern) in an earlier super-triangle-based design, and how the symbolic single-ghost-vertex fix removes the scale dependency entirely. |
+
 ## Algorithm-level tie-breaking (not yet applicable)
 
-Delaunay triangulation (Phase 4) and polygon Boolean (Phase 6) have cases
-with more than one topologically valid output (e.g. Delaunay triangulation
-of cocircular points). Deterministic tie-break rules for those cases will be
-added to this document when each phase is implemented — not speculated here
-ahead of the algorithms.
+Polygon Boolean (Phase 6) has cases with more than one topologically valid
+output. Deterministic tie-break rules for those cases will be added to this
+document when that phase is implemented — not speculated here ahead of the
+algorithm.

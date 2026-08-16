@@ -1,7 +1,7 @@
 # Architecture
 
-Status: reflects Phase 1 + Phase 2 + Phase 3 (complete). Updated per-phase,
-not written ahead of the code it describes.
+Status: reflects Phase 1 + Phase 2 + Phase 3 + Phase 4 (complete). Updated
+per-phase, not written ahead of the code it describes.
 
 ## Crate layout
 
@@ -29,15 +29,19 @@ src/
 ├── polygon/
 │   └── polygon2.rs          # Polygon2: signed_area (f64), orientation (exact),
 │                             # basic_validity, find_self_intersection
-└── hull/
-    └── convex_hull2.rs       # convex_hull2: Andrew monotone chain, built
-                               # entirely from orient2d — no new coordinates
-                               # constructed, so the whole algorithm is exact
+├── hull/
+│   └── convex_hull2.rs       # convex_hull2: Andrew monotone chain, built
+│                              # entirely from orient2d — no new coordinates
+│                              # constructed, so the whole algorithm is exact
+└── triangulation/
+    └── delaunay2.rs           # delaunay2: Bowyer-Watson incremental insertion,
+                                # a single symbolic "point at infinity" ghost
+                                # vertex instead of a synthetic bounding triangle
+                                # — no new coordinates constructed here either
 ```
 
-`predicates/constructions/`, `triangulation/`, `topology/` are empty
-placeholders reserved by §6's tree until the phase that fills them (Phase 4
-onward).
+`predicates/constructions/`, `topology/` are empty placeholders reserved by
+§6's tree until the phase that fills them (Phase 5 onward).
 
 ## Layering (§4.2)
 
@@ -89,8 +93,22 @@ onward).
    can legitimately do the same thing without being collinear (ruled out by
    a concrete counterexample during design; see `docs/degeneracy-policy.md`
    and `tasks/lessons.md`).
-7. **Triangulation, topology algorithms** do not exist yet (Phase 4
-   onward).
+7. **Delaunay triangulation** (`triangulation::delaunay2`) — Bowyer-Watson
+   incremental insertion. Also fully exact, like layer 6, but by a
+   different means: rather than a synthetic bounding coordinate,
+   "outside the current triangulation" is represented by a single
+   symbolic ghost vertex with no coordinate at all, always maintaining a
+   closed triangle fan around it (exactly like any real interior point
+   would). A triangle carrying the ghost reduces its circumcircle test to
+   an exact `orient2d` half-plane check against its one real edge. An
+   earlier design used a synthetic "super-triangle" coordinate instead;
+   that version passed every hand-written unit test but a property test
+   on ordinary (non-adversarial) random input found it silently dropping
+   a triangle, because whether a super-triangle vertex shields a real
+   edge is scale-dependent with no universally-safe multiplier. See
+   `docs/numerical-model.md`'s Phase 4 section, `tasks/lessons.md`, and
+   `tests/regression/delaunay2.rs` for the full trail.
+8. **Topology algorithms** do not exist yet (Phase 6 onward).
 
 ## Data flow for a predicate call
 

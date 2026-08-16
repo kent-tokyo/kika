@@ -132,3 +132,56 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   "equal" matches `PartialEq`'s exactly and equal points are always
   adjacent. See `src/hull/convex_hull2.rs`'s `normalize_zero` and the
   regression-style unit test `signed_zero_duplicate_collapses`.
+- Phase 4, real bug found in production (would have shipped without
+  property testing): a first `delaunay2` implementation seeded
+  Bowyer-Watson with a synthetic "super-triangle" (bounding-box-derived,
+  scaled 20x), stripped at the end. Passed every hand-written unit test —
+  including several targeting degenerate cases — but a property test on
+  *ordinary* random point clouds (not an adversarial construction) found
+  it silently dropping a triangle: 2 instead of the topologically-required
+  3 for a 4-point input (3 hull, 1 interior). The general lesson, sharper
+  than "pick a bigger constant": **a synthetic coordinate introduced for
+  algorithmic convenience carries a scale-dependent correctness condition
+  that no fixed constant satisfies** — the governing ratio here was
+  bounding-box diagonal to smallest relevant point spacing, which is
+  unbounded for an unlucky (not even adversarial) input, so the same trap
+  is waiting for any future phase tempted to reach for a bounding box or
+  similar synthetic construct (Phase 6 polygon Boolean is a likely
+  candidate). Fixed by removing the synthetic coordinate entirely — a
+  single symbolic "point at infinity" ghost vertex with an exact
+  `orient2d`-based reduction, no coordinate, no scale dependency. See
+  `docs/numerical-model.md`'s Phase 4 section and
+  `tests/regression/delaunay2.rs` for the full diagnostic trail
+  (property test → minimized 4-point counterexample → root cause →
+  redesign → re-verify).
+- Phase 4, a design mistake caught and corrected mid-flight by a second
+  opinion: an initial plan for the ghost-vertex fix used *three* separate
+  ghost points (mirroring the removed super-triangle's three corners) with
+  the rule "a triangle with 2 or more ghosts is always invalidated by any
+  new point." Implementing and hand-tracing this showed it discards
+  already-inserted real points (a triangle fan entirely around one real
+  point, made of three 2-ghost triangles, gets *completely* replaced by
+  the next insertion regardless of where that point actually lands, since
+  "always bad" doesn't check position). The correct model uses a *single*
+  conceptual point at infinity — matching the well-established
+  Guibas-Stolfi formulation — so at most one ghost vertex can ever appear
+  in any triangle, provable by induction, no unconditional "always bad"
+  rule needed anywhere. Lesson: verify a design change by hand-tracing its
+  simplest non-trivial case (here: what happens on the *second* point
+  insertion) before trusting it generalizes, the same discipline as
+  verifying any other algorithmic claim in this project.
+- Phase 4, a test-helper bug found twice in one session, in two different
+  property checks: comparing a triangulation's structure against
+  `convex_hull2(points, HullBoundaryPoints::ExtremesOnly)` is wrong
+  whenever the input has a collinear boundary point — that point is a
+  real triangulation vertex (splitting what would otherwise be one hull
+  edge into two), so `ExtremesOnly`'s strict-corners-only count
+  undercounts both the expected triangle count (`2n - 2 - h`, Euler's
+  formula) and the expected set of "unmatched" (hull-boundary) mesh
+  edges. Both checks needed `HullBoundaryPoints::KeepAllOnBoundary`
+  instead. Not a bug in `delaunay2` either time — a reminder that a test
+  oracle built from one of this crate's own APIs needs the *same* degree
+  of "which mode actually matches what I'm checking" scrutiny as the
+  production code it's verifying, especially when two sibling checks
+  (triangle count, edge-matching) both silently made the same wrong
+  choice.
