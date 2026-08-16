@@ -8,4 +8,6 @@ mod primitives;
 
 pub use error::KikaError;
 pub use predicates::{Orientation, Sign, incircle, insphere, orient2d, orient3d};
-pub use primitives::{Point2, Point3, Vector2, Vector3};
+pub use primitives::{
+    Aabb2, Aabb3, Point2, Point3, Segment2, Triangle2, Triangle3, Vector2, Vector3,
+};

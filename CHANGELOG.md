@@ -33,6 +33,9 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   `Point ± Vector -> Point` / `Point - Point -> Vector` affine arithmetic
   and vector `+`/`-`/negate/`* f64`. Point equality policy formalized as
   exact coordinate equality (ADR-003).
+- `Segment2`, `Triangle2`, `Triangle3`, `Aabb2`, `Aabb3` primitive types.
+  `Triangle2::orientation()`; `Aabb2`/`Aabb3::overlaps()` (exact, no
+  predicate calls — a fast bounding-box rejection test).
 
 ### Fixed
 

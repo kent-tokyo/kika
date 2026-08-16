@@ -48,6 +48,12 @@ in pure Rust, that's what Phase 1 of Kika is.
 * `Vector2`, `Vector3` — finite-coordinate displacement vectors, with the
   standard point/vector affine arithmetic (`Point ± Vector -> Point`,
   `Point - Point -> Vector`, vector `+`/`-`/`-` (negate)/`* f64`).
+* `Segment2`, `Triangle2`, `Triangle3`, `Aabb2`, `Aabb3` — plain data
+  types over the above (no extra validation beyond what `Point2`/`Point3`
+  already guarantee); zero-length segments and degenerate
+  (collinear-vertex) triangles are valid, representable values, not
+  rejected. `Triangle2::orientation()` wraps `orient2d`. `Aabb2`/`Aabb3`
+  give an exact, `orient2d`-free `overlaps()` fast-reject test.
 * `Sign`, `Orientation` — meaningful enums returned by predicates (never a
   raw determinant, never an ambiguous `bool`).
 * `orient2d` — exact-sign 2D orientation predicate. Uses a fast
@@ -136,9 +142,9 @@ at your option.
 
 ## Roadmap
 
-Not yet implemented: `Segment2`, `Triangle2`/`Triangle3`, `Aabb2`/`Aabb3`;
-segment intersection; polygon validity/orientation; convex hull; Delaunay
-triangulation; exact constructions; constrained Delaunay; polygon/mesh
-Boolean; mesh repair;
-surface reconstruction; point-cloud processing. See
-[`tasks/todo.md`](tasks/todo.md) for the phased backlog.
+Not yet implemented: point-on-segment; point-in-triangle; segment
+intersection; polygon type, area, validity, self-intersection detection;
+convex hull; Delaunay triangulation; exact constructions; constrained
+Delaunay; polygon/mesh Boolean; mesh repair; surface reconstruction;
+point-cloud processing. See [`tasks/todo.md`](tasks/todo.md) for the
+phased backlog.
