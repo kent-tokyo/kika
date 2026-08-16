@@ -28,3 +28,17 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   intra-call dynamic-range bugs. See `docs/numerical-model.md` "Known
   limitation (fixed): exactness starts at the original coordinates" and
   `tests/regression/orient2d.rs`.
+- Second real bug, same session: `incircle`'s (and latently `orient3d`'s)
+  filter bound used post-subtraction term magnitudes
+  (`|term_a|+|term_b|+|term_c|`) instead of pre-subtraction cofactor
+  magnitudes. Wrong whenever the *inner* subtraction inside a cofactor
+  term cancels catastrophically — orient2d never had this flaw because
+  its determinant has no inner subtraction, only the outer one, which was
+  already bounded correctly. When a filter's determinant formula has more
+  than one subtraction in its dependency chain, each one needs its own
+  pre-subtraction-magnitude bound term, not just the outermost one.
+  Diagnosed by checking `incircle_exact`'s intermediate expansions
+  against the bigint oracle step by step first (all exact — ruled out the
+  fallback), which pointed straight at the filter. See
+  `docs/numerical-model.md` "Known limitation (fixed): filter bound must
+  use pre-cancellation magnitudes".

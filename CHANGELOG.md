@@ -20,6 +20,12 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 - `orient3d`: same filter + exact-fallback design as `orient2d`. Checked
   against an independent exact-rational oracle in
   `tests/differential/orient3d.rs`.
+- `diff_expansion`, `product_of_expansions` exact-arithmetic primitives.
+- `incircle`: same filter + exact-fallback design, extended to the
+  "lift to the paraboloid" determinant. Narrower verified-safe coordinate
+  magnitude range than `orient2d`/`orient3d` (degree-4 determinant); see
+  `docs/numerical-model.md`. Checked against an independent exact-rational
+  oracle in `tests/differential/incircle.rs`.
 
 ### Fixed
 
@@ -31,3 +37,9 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   could return the wrong sign for calls mixing widely different
   coordinate magnitudes (e.g. `2^60` alongside small integers); see
   `tests/regression/orient2d.rs` and `docs/numerical-model.md`.
+- `orient3d`/`incircle` floating-point filters now bound their error
+  using each cofactor's pre-subtraction magnitudes instead of the
+  post-subtraction term magnitude, which could silently underestimate the
+  true error when an inner cofactor subtraction cancelled catastrophically
+  (found via `incircle`'s differential tests); see
+  `tests/regression/incircle.rs` and `docs/numerical-model.md`.

@@ -12,6 +12,18 @@ use crate::primitives::Point3;
 /// more. `12.0` is a deliberately generous constant over the derived
 /// `~7`, verified empirically (not just derived) by
 /// `tests/differential/orient3d.rs`.
+///
+/// The bound below sums each cofactor's **pre-subtraction** magnitudes
+/// (`|bdy_cdz|+|bdz_cdy|` etc.), scaled by the outer row factor — not
+/// `|term_a|+|term_b|+|term_c|` (the post-subtraction term magnitudes).
+/// Using post-subtraction magnitudes was an earlier, wrong version of
+/// this bound (and of `incircle`'s, where the same mistake was caught by
+/// a differential test — see `docs/numerical-model.md` "Known limitation
+/// (fixed): filter bound must use pre-cancellation magnitudes"): when the
+/// inner subtraction itself suffers catastrophic cancellation (e.g. `b`
+/// and `c` both roughly collinear with `d`), the true error is
+/// proportional to the pre-cancellation magnitudes, not to the smaller
+/// post-cancellation result.
 const ORIENT3D_ERR_BOUND_FACTOR: f64 = 12.0 * f64::EPSILON / 2.0;
 
 /// The sign of `det [a-d; b-d; c-d]` (the determinant with rows `a-d`,
@@ -62,7 +74,10 @@ pub fn orient3d(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
     let term_c = adz * (bdx_cdy - bdy_cdx);
     let det = term_a - term_b + term_c;
 
-    let bound = ORIENT3D_ERR_BOUND_FACTOR * (term_a.abs() + term_b.abs() + term_c.abs());
+    let bound = ORIENT3D_ERR_BOUND_FACTOR
+        * (adx.abs() * (bdy_cdz.abs() + bdz_cdy.abs())
+            + ady.abs() * (bdx_cdz.abs() + bdz_cdx.abs())
+            + adz.abs() * (bdx_cdy.abs() + bdy_cdx.abs()));
 
     if bound > 0.0 && det.abs() > bound {
         return Sign::of(det);

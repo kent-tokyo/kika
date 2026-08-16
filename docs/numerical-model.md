@@ -85,11 +85,88 @@ etc.) and summarized below as each predicate is implemented:
   `product_expansion`/`expansion_sum`/`expansion_sign` building blocks.
   Verified against an independent oracle in
   `tests/differential/orient3d.rs`.
-* `incircle`, `insphere`: same pattern, added as each lands.
+* `incircle`: implemented. See `INCIRCLE_ERR_BOUND_FACTOR` in
+  `src/predicates/incircle.rs`. Lifts each point to `(dx, dy,
+  dx^2+dy^2)`; the exact fallback builds the lifted `z` coordinate as an
+  exact expansion of an exact expansion (`product_of_expansions(dx, dx)`
+  summed with `product_of_expansions(dy, dy)`), not a squared rounded
+  `f64` — see "Known limitation (fixed): exactness starts at the original
+  coordinates" below for why that distinction matters. Verified against
+  an independent oracle in `tests/differential/incircle.rs`.
+* `insphere`: same pattern, added as each lands.
 
 If `|determinant| > error_bound`, the sign of `determinant` is provably the
 true sign and is returned without any fallback. Otherwise, the exact
 fallback (above) runs.
+
+## Known limitation (fixed): filter bound must use pre-cancellation magnitudes
+
+Found while implementing `incircle`, then confirmed as a latent flaw in
+`orient3d` too (same cofactor structure, not yet triggered by that
+predicate's differential tests when found, but structurally identical).
+
+Both predicates compute 3 signed terms of the shape `term_X = adX * (P*Q
+- R*S)`. The first version of both filters bounded the error using
+`|term_a|+|term_b|+|term_c|` — the **post**-subtraction term magnitudes.
+That is wrong whenever the inner subtraction `P*Q - R*S` itself suffers
+catastrophic cancellation (e.g. `incircle` with two of the three defining
+points both far from `d` in roughly the same direction: `P*Q` and `R*S`
+are individually huge and nearly equal). The true absolute error
+introduced by that cancellation is proportional to the **pre**-subtraction
+magnitudes `|P*Q|+|R*S|`, not to the — possibly much smaller —
+post-cancellation result. Using the smaller value silently underestimates
+the bound, which can let a wrong sign through as "the filter is
+conclusive."
+
+Found via `tests/differential/incircle.rs`'s `mixed_intra_call_magnitude`
+generator; root-caused by comparing every intermediate expansion of
+`incircle_exact` against the bigint oracle step by step (all were exact —
+the bug was entirely in the filter, not the fallback). Fixed by summing
+each cofactor's pre-subtraction magnitudes, scaled by the outer row
+factor:
+
+```text
+bound = FACTOR * (|adX| * (|P*Q| + |R*S|) + ... for each of the 3 rows)
+```
+
+`orient2d`'s bound was never wrong this way — its determinant has no
+*inner* subtraction to worry about (`left = acx*bcy`, `right = acy*bcx`
+are direct products, and `det = left - right` is the only subtraction,
+already bounded by the correct `|left|+|right|`). The flaw only appears
+in predicates whose cofactor expansion has an inner 2-term subtraction
+before the outer row multiply — `orient3d` and `incircle` today,
+`insphere` by the same structure. Pinned as regression fixtures:
+`tests/regression/incircle.rs`, `tests/differential/orient3d.rs`'s
+`cofactor_cancellation_stress`.
+
+## Known limitation: incircle/insphere have a narrower safe magnitude range
+
+`incircle`'s determinant is **degree 4** in the coordinate differences
+(the paraboloid lift squares two of the three matrix columns, then a
+cofactor multiplies a degree-1 row factor by a degree-1-times-degree-2
+sub-determinant) — not degree 2/3 like `orient2d`/`orient3d`. For
+uniformly-scaled coordinates of magnitude `M`, intermediate products
+reach `~M^4`. Both the filter (plain `f64`, can overflow to `Infinity`)
+and the exact fallback (each expansion component is still a single `f64`
+— exact arithmetic adds precision, not exponent range, see "exact-product
+representability floor" above) are bounded by `f64`'s representable
+exponent range, giving:
+
+* **Ceiling** (overflow): `M^4 < f64::MAX (~1.8e308)` ⟹ `M < ~1.16e77`.
+* **Floor** (the two-`f64`-product exactness floor, `~1.7e-292`,
+  compounded through a degree-4 chain rather than a single `two_product`):
+  empirically, safe well above `M ~ 1e-70`; not tightly derived, treated
+  conservatively.
+
+Kika does not claim exact-fallback correctness for `incircle` inputs
+outside roughly `[1e-70, 1e70]` coordinate-difference magnitude (a
+generous margin inside the derived ceiling/floor); it does still
+guarantee the universal API contract (no panic, no NaN/Infinity from
+finite input) — see `tests/adversarial/incircle.rs`'s
+`near_subnormal_scale_does_not_panic` / `extreme_large_scale_does_not_panic`.
+`insphere` (degree 5) will need its own, likely still narrower, derivation
+when implemented. As with the two-`f64`-product floor, no real-world
+coordinate system operates anywhere near this boundary.
 
 ## Known limitation (fixed): exactness starts at the original coordinates
 

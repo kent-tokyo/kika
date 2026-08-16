@@ -142,6 +142,26 @@ fn extreme_and_mixed_scale() {
 }
 
 #[test]
+fn cofactor_cancellation_stress() {
+    // Regression coverage for a real bug found while implementing
+    // incircle and traced back to this same cofactor structure: the
+    // filter's error bound used the *post-subtraction* term magnitude
+    // (|term_a|+|term_b|+|term_c|) instead of the pre-subtraction
+    // cofactor magnitudes. When b and c are both far from d in roughly
+    // the same direction, an inner cofactor like `bdx*cdz - bdz*cdx`
+    // nearly cancels between two huge values, and the old bound
+    // silently underestimated the true error. See
+    // `docs/numerical-model.md` "Known limitation (fixed): filter bound
+    // must use pre-cancellation magnitudes".
+    check(
+        (0.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (0.0, 2.0, 1.0),
+        (1e15, 0.0, 1e15),
+    );
+}
+
+#[test]
 fn permutation_swaps_match_oracle() {
     let (a, b, c, d) = (
         (0.0, 0.0, 0.0),

@@ -55,7 +55,13 @@ in pure Rust, that's what Phase 1 of Kika is.
 * `orient3d` — exact-sign tetrahedron-orientation predicate. Same
   filter + exact-fallback design as `orient2d`. Checked against an
   independent exact-rational oracle in `tests/differential/`.
-* `incircle`, `insphere` — not implemented yet (in progress). See
+* `incircle` — exact-sign point-in-circumcircle predicate. Same
+  filter + exact-fallback design, with a narrower verified-safe
+  coordinate-magnitude range (`~1e-70`..`~1e70`) than `orient2d`/
+  `orient3d` due to its higher polynomial degree — see
+  [`docs/numerical-model.md`](docs/numerical-model.md). Checked against an
+  independent exact-rational oracle in `tests/differential/`.
+* `insphere` — not implemented yet (in progress). See
   [Roadmap](#roadmap).
 
 ## Exact predicates vs. exact constructions
@@ -117,7 +123,7 @@ at your option.
 
 ## Roadmap
 
-Not yet implemented: `incircle`, `insphere`; 2D primitives
+Not yet implemented: `insphere`; 2D primitives
 beyond `Point2`/`Point3` (vectors, segments, triangles, AABBs); segment
 intersection; polygon validity/orientation; convex hull; Delaunay
 triangulation; exact constructions; constrained Delaunay; polygon/mesh

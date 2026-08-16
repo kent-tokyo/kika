@@ -8,8 +8,10 @@ Status: Phase 1 subset only. See ADR-002 for full reasoning.
 |---|---|
 | Three collinear points | `orient2d` returns `Orientation::Collinear` |
 | Four coplanar points | `orient3d` returns `Sign::Zero` |
-| Four cocircular points (non-collinear) | `incircle` returns `Sign::Zero` |
-| Five cospherical points (non-coplanar) | `insphere` returns `Sign::Zero` |
+| Four cocircular points (`a,b,c` non-collinear) | `incircle` returns `Sign::Zero` |
+| `a,b,c` collinear, `d` also on that line | `incircle` returns `Sign::Zero` (the "circle" through 3 collinear points degenerates to the line, extended to infinity; a 4th point on that same line is on the degenerate circle) |
+| `a,b,c` collinear, `d` off that line | `incircle` returns a **nonzero** sign indicating which side of the line `d` is on. Not a special case in the code — a direct, hand-verified consequence of the determinant formula, covered by `incircle::tests::collinear_abc_with_d_off_line_is_not_zero`. Do not assume "defining points collinear" implies zero. |
+| Five cospherical points (`a,b,c,d` non-coplanar) | `insphere` returns `Sign::Zero` |
 | Duplicate/repeated input point | Falls out of the determinant being exactly zero; no special-cased code path; covered by tests |
 | Signed zero (`-0.0`) | Treated identically to `0.0`; covered by adversarial tests |
 | Subnormal coordinates | Handled by the same filter+exact-fallback path as normal floats; covered by adversarial tests |

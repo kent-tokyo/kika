@@ -7,5 +7,5 @@ mod predicates;
 mod primitives;
 
 pub use error::KikaError;
-pub use predicates::{Orientation, Sign, orient2d, orient3d};
+pub use predicates::{Orientation, Sign, incircle, orient2d, orient3d};
 pub use primitives::{Point2, Point3};
