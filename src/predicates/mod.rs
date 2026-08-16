@@ -1,3 +1,4 @@
+mod constructions;
 mod expansion;
 mod incircle;
 mod insphere;
@@ -6,6 +7,7 @@ mod orient3d;
 mod polygon2;
 mod sign;
 
+pub(crate) use constructions::line_intersection;
 pub use incircle::incircle;
 pub use insphere::insphere;
 pub use orient2d::orient2d;

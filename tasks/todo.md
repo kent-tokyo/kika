@@ -1,6 +1,6 @@
 # Todo
 
-## Done (Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4)
+## Done (Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5)
 
 - [x] Phase 0: name-collision check, ecosystem survey, ADR-001..005
 - [x] Expansion arithmetic core (`two_sum`, `split`, `two_product`,
@@ -71,6 +71,33 @@
       see above) — see `tasks/lessons.md` for the full diagnostic trail,
       including a design mistake in the first fix attempt (three ghosts
       instead of one) caught by hand-tracing before it shipped.
+- [x] ADR-004 decided: kept `Point2` a plain `f64` pair, chose
+      `float+certificate` (correctly-rounded division from exact
+      expansions) over a new exact-coordinate type — see the ADR's
+      "Decision for Phase 5" section for the rejected alternatives and why.
+- [x] `predicates::line_intersection` (internal): the crate's first
+      exact/certified construction, closing `segment_intersection`'s
+      `Proper`-case exactness gap. Reuses `orient2d`'s exact-fallback
+      machinery for the numerator/denominator (degree 3, not a fresh
+      determinant); `correctly_rounded_divide` resolves the one
+      unavoidable division to the provably nearest `f64`. Verified against
+      an independent `BigRational` "correctly-rounded nearest `f64`"
+      oracle in `tests/differential/line_intersection.rs` (magnitude
+      scales, mixed-magnitude inputs, an empirical floor sweep down to
+      `2^-335`) — see `docs/numerical-model.md`.
+- [x] A wrong a priori assumption, caught by measurement before it shipped
+      as documentation: assumed the construction's safe magnitude range
+      would be *narrower* than `incircle`'s (more multiplications felt
+      riskier); the empirical floor sweep showed it's *wider* — degree (3
+      vs. `incircle`'s 4), not "predicate vs. construction", governs the
+      floor. See `tasks/lessons.md`.
+- [x] The refinement loop's iteration bound (`0..8`) was unverified when
+      first written — advisor review flagged it as the same class of risk
+      as the super-triangle scale constant (an unverified assumption on a
+      correctness-critical path). Measured via
+      `divide_loop_iteration_bound_is_generous`: worst case observed is 2
+      iterations (ordinary + deliberately near-parallel crossings across
+      `1e-300`..`1e100`), 4x below the bound — see `tasks/lessons.md`.
 
 ## Known gaps, not yet closed (see docs/compatibility.md)
 
@@ -83,10 +110,6 @@
 - [ ] `incircle`/`insphere` safe-magnitude-range bounds
       (`docs/numerical-model.md`) are empirically-checked, not tightly
       derived on the floor side
-- [ ] `segment_intersection`'s `Proper` case is not a certified/exact
-      construction (ordinary `f64` parametric interpolation) — Phase 5
-      territory, not skipped ahead of, but a real gap for callers who
-      need exact intersection coordinates today
 - [ ] `Triangulation2` exposes only a flat triangle list, no
       adjacency/half-edge structure — deliberate (§6: split into a real
       structure only when a consumer actually needs neighbor queries),
@@ -94,10 +117,13 @@
 
 ## Backlog (later phases, not started)
 
-- [ ] Phase 5: exact construction model (re-open ADR-004; this is also
-      where `segment_intersection`'s `Proper` case gets a real fix)
-- [ ] Phase 6: constrained Delaunay, polygon Boolean
-- [ ] CGAL differential-test harness (separate program, §10)
+- [ ] Phase 6: constrained Delaunay, polygon Boolean — revisit ADR-004
+      again if this needs exactness chained across multiple constructions
+      (not just one correctly-rounded coordinate per call, as Phase 5's
+      `line_intersection` needed)
+- [ ] CGAL differential-test harness (separate program, §10) — currently
+      environment-blocked, not just unstarted: CGAL/pkg-config are not
+      installed in this development environment
 - [ ] fuzz targets (§12) — none yet; differential/regression tests so far
       are hand-written and randomized, not coverage-guided fuzzing
 - [ ] benches (§13) — predicate fast-path/fallback rate measurement not

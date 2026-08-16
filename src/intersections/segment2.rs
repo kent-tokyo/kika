@@ -1,4 +1,4 @@
-use crate::predicates::{Orientation, orient2d};
+use crate::predicates::{Orientation, line_intersection, orient2d};
 use crate::primitives::{Aabb2, Point2, PointSegmentRelation, Segment2};
 
 /// The kind of intersection between two 2D segments, per AGENTS.md §9
@@ -35,10 +35,13 @@ pub enum SegmentIntersectionKind {
 /// (all a single point) — coarser than `SegmentIntersectionKind`; use
 /// that instead if the distinction matters. For `EndpointTouch` and
 /// `CollinearTouch` the point is exactly one of the four input
-/// coordinates (no arithmetic, hence exact); for `Proper` it is computed
-/// via ordinary `f64` parametric line interpolation, **not** a
-/// certified/exact construction (that is Phase 5 territory — ADR-004 —
-/// not yet built). `Overlap`'s endpoints are likewise exactly two of the
+/// coordinates (no arithmetic, hence exact); for `Proper` it is a
+/// certified construction (ADR-004, Phase 5): the `f64` nearest to the
+/// true, infinite-precision crossing point, computed via
+/// `predicates::line_intersection` — not merely a good approximation, see
+/// that function's doc comment for the correctly-rounded-division
+/// algorithm and its verified-safe magnitude range (measured wider than
+/// `incircle`'s). `Overlap`'s endpoints are likewise exactly two of the
 /// four input coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SegmentIntersection2 {
@@ -177,20 +180,16 @@ pub fn segment_intersection(s1: Segment2, s2: Segment2) -> SegmentIntersection2 
     }
 }
 
-/// Ordinary `f64` parametric line-line intersection. Only reached when
+/// Certified line-line intersection (ADR-004). Only reached when
 /// `classify` has already established a `Proper` crossing, which
-/// guarantees the two lines are non-parallel (opposite-sign straddling
-/// on both sides is impossible for parallel lines) — so `denom != 0`
-/// here, always. Not a certified/exact construction (see
-/// [`SegmentIntersection2`]'s doc comment); for astronomically extreme,
-/// near-parallel inputs the result's finiteness is not guaranteed — a
-/// known, documented gap (Phase 5 territory), not silently assumed away.
+/// guarantees the two lines are non-parallel (opposite-sign straddling on
+/// both sides is impossible for parallel lines) — `predicates::line_intersection`'s
+/// precondition. See that function's doc comment for the correctly-rounded
+/// construction and its magnitude-range limitation; for astronomically
+/// extreme, near-parallel inputs the result's finiteness is still not
+/// guaranteed — a known, documented gap, not silently assumed away.
 fn proper_intersection_point(s1: Segment2, s2: Segment2) -> Point2 {
-    let (a, b) = (s1.a(), s1.b());
-    let (c, d) = (s2.a(), s2.b());
-    let denom = (b.x() - a.x()) * (d.y() - c.y()) - (b.y() - a.y()) * (d.x() - c.x());
-    let t = ((a.y() - c.y()) * (d.x() - c.x()) - (a.x() - c.x()) * (d.y() - c.y())) / denom;
-    Point2::new_unchecked(a.x() + t * (b.x() - a.x()), a.y() + t * (b.y() - a.y()))
+    line_intersection(s1.a(), s1.b(), s2.a(), s2.b())
 }
 
 #[cfg(test)]

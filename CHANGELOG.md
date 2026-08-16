@@ -92,6 +92,25 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   `tests/differential/delaunay2.rs`.
 
   This completes Phase 4 (2D Delaunay Triangulation).
+- `predicates::line_intersection` (internal, used by `segment_intersection`'s
+  `Proper` case): the crate's first exact/certified **construction**
+  (ADR-004, decided). Returns the correctly-rounded (round-to-nearest-even
+  on exact ties) `f64` nearest to the true line-line intersection
+  coordinate, ending the `Proper`-case exactness gap noted in Phase 2's
+  entry above. `Point2` stays a plain `f64` pair (`float+certificate` model
+  chosen over a new exact-coordinate type, per ADR-004): the numerator and
+  denominator of the parametric crossing formula are built as exact
+  expansions reusing `orient2d`'s own exact-fallback machinery, and the
+  final division is resolved to the correctly-rounded result by comparing
+  the exact residual against a per-direction half-ULP threshold. No new
+  public API, no new dependency. Verified against an independent
+  `BigRational` "is this the correctly-rounded nearest `f64`" oracle
+  (magnitude scales, mixed-magnitude inputs, an empirical magnitude-floor
+  sweep, and a measured — not assumed — bound on the refinement loop's
+  worst-case iteration count) in `tests/differential/line_intersection.rs`;
+  see `docs/numerical-model.md`.
+
+  This completes Phase 5 (Exact/Certified Constructions).
 
 ### Fixed
 

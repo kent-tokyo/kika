@@ -10,8 +10,8 @@ robust 2D/3D computational geometry: exact predicates with adaptive/exact
 fallback arithmetic, and — in later phases — triangulation, hull, and
 polygon algorithms built on top of that foundation.
 
-Status: **pre-alpha (Phase 1 + 2 + 3 + 4 complete, Phase 5 not started).**
-No stability guarantees. See
+Status: **pre-alpha (Phase 1 + 2 + 3 + 4 + 5 complete, Phase 6 not
+started).** No stability guarantees. See
 [Roadmap](#roadmap) for what does not exist yet — **Kika is not a CGAL
 replacement yet**, it is the robust kernel a future one would be built on.
 
@@ -67,9 +67,10 @@ in pure Rust, that's what Phase 1 of Kika is.
   deliberately kept as separate functions (§4.2): classification
   (`None`/`Proper`/`EndpointTouch`/`CollinearTouch`/`CollinearOverlap`)
   never divides or builds a new coordinate, with an `Aabb2`-based
-  fast-reject ahead of any predicate call. Construction is exact for
-  every case *except* `Proper`, which needs a genuinely new coordinate —
-  see [Exact predicates vs. exact constructions](#exact-predicates-vs-exact-constructions).
+  fast-reject ahead of any predicate call. Construction is exact for every
+  case, including `Proper` (the one case that needs a genuinely new
+  coordinate, correctly rounded as of Phase 5) — see
+  [Exact predicates vs. exact constructions](#exact-predicates-vs-exact-constructions).
   Checked against an independent exact-rational oracle in
   `tests/differential/`.
 * `Polygon2` — a vertex ring, implicitly closed (no repeated first/last
@@ -131,25 +132,37 @@ in pure Rust, that's what Phase 1 of Kika is.
 
 All four predicates complete v0.1's robust-predicate scope; the primitives,
 intersections, polygon, convex hull, and Delaunay triangulation above
-complete Phases 2 through 4. Everything past this point (certified/exact
-constructions, constrained Delaunay, polygon Boolean) is Phase 5 and
-later — see [Roadmap](#roadmap).
+complete Phases 2 through 4. `segment_intersection`'s `Proper`-crossing
+point construction (below) completes Phase 5. Everything past this point
+(constrained Delaunay, polygon Boolean) is Phase 6 and later — see
+[Roadmap](#roadmap).
+
+* `predicates::line_intersection` (used internally by
+  `segment_intersection`'s `Proper` case) — the first exact/certified
+  **construction** in the crate, per ADR-004. Returns the correctly-rounded
+  (round-to-nearest-even on exact ties) `f64` nearest to the true
+  intersection coordinate, not an approximation — the same guarantee
+  IEEE-754 makes for a single arithmetic operation, extended to a whole
+  geometric construction. `Point2` stays a plain `f64` pair; no new public
+  type, no new dependency. Verified against an independent `BigRational`
+  "is this the correctly-rounded nearest `f64`" oracle across magnitude
+  scales, mixed-magnitude inputs, and an empirical floor sweep — see
+  [`docs/numerical-model.md`](docs/numerical-model.md).
 
 ## Exact predicates vs. exact constructions
 
 Kika's predicates (`orient2d` etc.) guarantee a mathematically correct
-**sign**. They do not, by themselves, guarantee that a *generated
-coordinate* is exact — that is a separate problem ("construction"), not
-yet solved (real exact/certified constructions are Phase 5, ADR-004).
-Concretely, today: `segment_intersection`'s `Proper`-crossing point is
-computed via ordinary `f64` parametric interpolation, with ordinary
-floating-point rounding error — unlike every *other* case that function
+**sign**. Guaranteeing that a *generated coordinate* is exact is a
+separate problem ("construction") — as of Phase 5, one case is solved:
+`segment_intersection`'s `Proper`-crossing point is now a correctly-rounded
+construction (`predicates::line_intersection`, ADR-004), unlike the naive
+`f64` interpolation it used to be. It joins the other cases that function
 can return (`EndpointTouch`/`CollinearTouch`/`CollinearOverlap`), which
-reuse an original input coordinate exactly, since the shared point *is*
-one of the inputs. See [`docs/architecture.md`](docs/architecture.md)
-§4.2 and ADR-004. Do not assume constructions implemented in later phases
-carry the same exactness guarantee as today's predicates until their own
-docs say so.
+were already exact by reusing an original input coordinate directly. See
+[`docs/architecture.md`](docs/architecture.md) §4.2 and ADR-004. Do not
+assume constructions implemented in later phases (Phase 6: constrained
+Delaunay, polygon Boolean) carry the same exactness guarantee until their
+own docs say so.
 
 ## Degenerate cases
 
@@ -201,9 +214,8 @@ at your option.
 ## Roadmap
 
 Phase 1 (robust predicates), Phase 2 (2D primitives and intersections),
-Phase 3 (2D convex hull), and Phase 4 (2D Delaunay triangulation) are
-complete. Not yet implemented: certified/exact constructions (Phase 5,
-including an exact `Proper` segment-intersection point); constrained
-Delaunay; polygon/mesh Boolean; mesh repair; surface reconstruction;
-point-cloud processing. See [`tasks/todo.md`](tasks/todo.md) for the
-phased backlog.
+Phase 3 (2D convex hull), Phase 4 (2D Delaunay triangulation), and Phase 5
+(certified/exact constructions — an exact `Proper` segment-intersection
+point) are complete. Not yet implemented: constrained Delaunay; polygon/mesh
+Boolean; mesh repair; surface reconstruction; point-cloud processing. See
+[`tasks/todo.md`](tasks/todo.md) for the phased backlog.

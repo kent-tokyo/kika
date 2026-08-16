@@ -185,3 +185,46 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   production code it's verifying, especially when two sibling checks
   (triangle count, edge-matching) both silently made the same wrong
   choice.
+- Phase 5, a wrong a priori assumption caught by measuring before writing
+  it down as fact: assumed `line_intersection`'s safe magnitude range
+  would be *narrower* than `incircle`'s, reasoning that its extra
+  multiplication (`d1`/`d2` scaled once more by a coordinate, on top of
+  the degree-2 cross product) would make things worse than `incircle`'s
+  already-narrow range. The actual empirical sweep
+  (`tests/differential/line_intersection.rs`'s `magnitude_floor_sweep`)
+  found the opposite: safe down through `2^-335`, comfortably *wider* than
+  `incircle`'s `~1e-70`. The real governing factor is polynomial *degree*
+  (`line_intersection` is degree 3; `incircle` is degree 4, from its
+  paraboloid lift), not "one more multiply feels riskier" intuition, and
+  not "predicate vs. construction". This is the same discipline as the
+  `1.7e-292` representability-floor lesson above (first-pass derivation
+  wrong by ~50 bits, corrected by measurement) — applied here to a
+  direction-of-effect guess instead of a numeric constant. Caught before
+  it shipped as documentation, not after: the doc comment was corrected to
+  state the measured fact once the sweep contradicted the draft.
+- Phase 5, a real risk caught by advisor review rather than by testing:
+  `correctly_rounded_divide`'s refinement loop was bounded at 8 iterations
+  "as a safety net", with a doc comment claiming the initial `f64`-division
+  guess would need "at most a few steps" to refine — asserted, not
+  measured. Advisor review pointed out this is the same shape of mistake
+  as the Phase 4 super-triangle scale constant: an unverified assumption on
+  a path whose entire purpose is a correctness guarantee, where silently
+  returning a wrong-but-finite answer on loop exhaustion is exactly the
+  failure mode this whole construction exists to prevent. Fixed by adding
+  a `#[cfg(test)]`-only instrumented counter and a dedicated test
+  (`divide_loop_iteration_bound_is_generous`) exercising both ordinary
+  random crossings and deliberately near-parallel ones (small `d1-d2`,
+  the case most likely to defeat the initial guess via catastrophic
+  cancellation) across magnitude scales from `1e-300` to `1e100`: measured
+  worst case is 2 iterations, 4x below the bound. A `debug_assert!` on the
+  loop-exhaustion fallback was considered and rejected — `debug_assertions`
+  are controlled by the *consuming* crate's build profile, not just this
+  crate's own test runs, so it would have introduced a new panic path
+  reachable from the public `segment_intersection` API in any downstream
+  consumer's ordinary (non-release) build, conflicting with AGENTS.md's
+  "no undocumented panics in public API" mandate for an already
+  near-unreachable case. Lesson: "the loop won't realistically hit its
+  bound" is exactly the kind of claim this project's whole methodology
+  says to measure, not assert — and even once measured favorably, a
+  defensive check's *reachability* (test-only vs. shipped-to-downstream)
+  needs the same scrutiny as the check itself.

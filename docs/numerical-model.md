@@ -349,18 +349,16 @@ Phase 1 (no known need).
 `Segment2::relation_to`, `Triangle2::relation_to`, and
 `segment_intersection_kind` are exact — they only ever compare
 already-computed predicate results and raw input coordinates, no new
-arithmetic. `segment_intersection`'s construction side is **not**
-uniformly exact: `EndpointTouch`/`CollinearTouch`/`CollinearOverlap`
-reuse an original input coordinate directly (exact, by definition — the
-shared point *is* one of the four inputs), but `Proper` computes a new
-coordinate via ordinary `f64` parametric line-line interpolation, with no
-exactness guarantee. This is intentional, not an oversight: ADR-004
-explicitly defers a real exact/certified construction strategy to Phase
-5, and Phase 2's own scope note says not to skip ahead of it. Until then,
-a `Proper` intersection point may carry ordinary floating-point rounding
-error, and — in astronomically extreme, near-parallel-line inputs — is
-not even guaranteed finite (see `proper_intersection_point`'s doc
-comment in `src/intersections/segment2.rs`).
+arithmetic. `segment_intersection`'s construction side was **not**
+uniformly exact at the time Phase 2 shipped: `EndpointTouch`/
+`CollinearTouch`/`CollinearOverlap` reuse an original input coordinate
+directly (exact, by definition — the shared point *is* one of the four
+inputs), but `Proper` computed a new coordinate via ordinary `f64`
+parametric line-line interpolation, with no exactness guarantee. That gap
+was intentional, not an oversight — ADR-004 explicitly deferred a real
+exact/certified construction strategy to Phase 5 — and is now closed: see
+"Phase 5: `Proper` intersection is now a correctly-rounded construction"
+below.
 
 `Polygon2::orientation()` is the exception among Phase 2's query methods
 in the other direction: it's not just composing existing exact
@@ -446,6 +444,67 @@ and against the original minimized failing case in
 Degenerate cases (collinear boundary points, cocircular points) are
 handled explicitly — see `docs/degeneracy-policy.md`'s Delaunay
 triangulation table.
+
+## Phase 5: `Proper` intersection is now a correctly-rounded construction
+
+ADR-004 is decided (see the ADR): `Point2` stays a plain `f64` pair, and
+`segment_intersection`'s `Proper` case now returns the **correctly rounded**
+(round-to-nearest-even on exact ties) `f64` nearest to the true,
+infinite-precision intersection coordinate — the same guarantee IEEE-754
+gives a single arithmetic operation, extended to a whole geometric
+construction. Implemented in `src/predicates/constructions/line_intersection.rs`.
+
+**Construction.** Parametrizing line `AB` as `P(t) = A + t(B-A)` and letting
+`d1 = orient2d(C,D,A)`, `d2 = orient2d(C,D,B)` (the signed twice-area from
+each endpoint to line `CD`), the crossing point is `P = [d1*B - d2*A] /
+(d1-d2)` (see the function's doc comment for the full derivation). `d1`,
+`d2`, and hence the numerator/denominator, are built as *exact* expansions
+reusing `orient2d`'s own exact-fallback determinant machinery — the same
+`diff_expansion`/`product_of_expansions`/`expansion_sum` primitives as every
+other exact fallback in this file, no new arithmetic primitive needed. The
+division by `(d1-d2)` is the one step that cannot stay exact (the true
+quotient is generally irrational relative to `f64`); `correctly_rounded_divide`
+handles it: an ordinary `f64` division seeds an initial guess `q`, then the
+*exact* residual `r = num - q*denom` (via the same expansion machinery)
+determines whether `q` already rounds correctly, must step to its
+neighbor, or lands on an exact tie (resolved by round-to-even on `q`'s
+mantissa LSB) — comparing `|r|` against `|denom| * half_ulp`, computed
+per-direction since ULP is asymmetric at power-of-two boundaries.
+
+**Loop bound, measured not assumed.** The refinement loop is capped at 8
+iterations as a safety net. `divide_loop_iteration_bound_is_generous`
+(`src/predicates/constructions/line_intersection.rs`) measures the actual
+worst case — ordinary random crossings plus deliberately near-parallel ones
+(where `d1-d2` is a small difference of close values, the case most likely
+to defeat the plain-`f64` initial guess via catastrophic cancellation),
+across magnitude scales from `1e-300` to `1e100` — at 2 iterations, 4x below
+the bound. This was checked, not assumed: an unverified iteration bound on a
+function whose entire purpose is a correctness guarantee would be the same
+class of risk as the super-triangle scale constant from Phase 4.
+
+**Magnitude range, measured wider than expected.** This construction is
+degree 3 in the input coordinates (`d1`/`d2` are degree-2 cross products,
+scaled once more by a coordinate) — lower degree than `incircle`'s degree-4
+determinant. It was not obvious ahead of time whether that would make its
+safe range narrower or wider; the first draft of this document assumed
+narrower (more multiplications feels riskier) and was wrong.
+`tests/differential/line_intersection.rs`'s `magnitude_floor_sweep` measured
+it directly against an independent `BigRational` "is this the
+correctly-rounded nearest `f64`" oracle: no failure observed down through
+`2^-335` (`~1.4e-101`, 50 random crossings sampled per exponent step) —
+wider than `incircle`'s documented `~1e-70` floor above, not narrower.
+Degree, not "construction vs. predicate", governs the floor. Below the
+measured boundary, the same `product_expansion` representability floor
+documented above applies (silently degrading the "exact" claim, not
+solved, matching `incircle`/`insphere` precedent). See `tasks/lessons.md`
+for the meta-lesson about predicting this the wrong way round.
+
+**Known gap, unchanged from before this construction existed:** the
+precondition (non-parallel lines) is established by the caller
+(`segment_intersection`'s `Proper` classification already guarantees this),
+not re-checked here. For astronomically extreme, near-parallel inputs
+outside the measured magnitude range, the result's finiteness is not
+independently guaranteed — documented, not silently assumed away.
 
 ## What is *not* claimed
 

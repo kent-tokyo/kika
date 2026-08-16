@@ -10,6 +10,8 @@ mod delaunay2;
 mod incircle;
 #[path = "differential/insphere.rs"]
 mod insphere;
+#[path = "differential/line_intersection.rs"]
+mod line_intersection;
 #[path = "differential/orient2d.rs"]
 mod orient2d;
 #[path = "differential/orient3d.rs"]
