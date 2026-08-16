@@ -1,6 +1,6 @@
 # Todo
 
-## Done (Phase 0 + Phase 1 + Phase 2)
+## Done (Phase 0 + Phase 1 + Phase 2 + Phase 3)
 
 - [x] Phase 0: name-collision check, ecosystem survey, ADR-001..005
 - [x] Expansion arithmetic core (`two_sum`, `split`, `two_product`,
@@ -34,6 +34,23 @@
       6. (doc bug, caught before writing) assumed insphere's coplanar
          case was analogous to incircle's collinear case; verified
          first, found it was wrong (needs concyclic, not just coplanar)
+      7. (design-time bugs, caught by hand-tracing/review before writing
+         code) Phase 3's naive monotone chain self-retraces on fully
+         collinear input in "keep all boundary" mode; a proposed
+         post-hoc collinearity heuristic (chain length) has a false
+         positive on "valley" point sets; a `total_cmp` sort without
+         signed-zero normalization can make `dedup()` miss a real
+         duplicate — see `tasks/lessons.md`
+- [x] `hull::convex_hull2` (Andrew monotone chain): `HullBoundaryPoints`
+      (`ExtremesOnly`/`KeepAllOnBoundary`), CCW output starting at the
+      lexicographically smallest input point, exact throughout (every
+      returned vertex is a copied input coordinate — no division, no
+      interpolation, unlike `segment_intersection`'s `Proper` case).
+      Checked via structural property tests (containment, hull vertices
+      are input points, convexity/winding, permutation invariance,
+      idempotence) against `orient2d`/`Segment2::relation_to`, not a
+      from-scratch `BigRational` reimplementation — see
+      `tests/differential/convex_hull2.rs`'s module doc for why.
 
 ## Known gaps, not yet closed (see docs/compatibility.md)
 
@@ -53,7 +70,6 @@
 
 ## Backlog (later phases, not started)
 
-- [ ] Phase 3: 2D convex hull (monotone chain)
 - [ ] Phase 4: 2D Delaunay triangulation
 - [ ] Phase 5: exact construction model (re-open ADR-004; this is also
       where `segment_intersection`'s `Proper` case gets a real fix)

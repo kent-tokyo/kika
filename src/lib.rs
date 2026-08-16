@@ -3,12 +3,14 @@
 //! Pre-alpha; see the repository README and `docs/` for scope and status.
 
 mod error;
+mod hull;
 mod intersections;
 mod polygon;
 mod predicates;
 mod primitives;
 
 pub use error::KikaError;
+pub use hull::{HullBoundaryPoints, convex_hull2};
 pub use intersections::{
     SegmentIntersection2, SegmentIntersectionKind, segment_intersection, segment_intersection_kind,
 };

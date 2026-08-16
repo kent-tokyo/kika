@@ -1,7 +1,7 @@
 # Architecture
 
-Status: reflects Phase 1 + Phase 2 (complete). Updated per-phase, not
-written ahead of the code it describes.
+Status: reflects Phase 1 + Phase 2 + Phase 3 (complete). Updated per-phase,
+not written ahead of the code it describes.
 
 ## Crate layout
 
@@ -26,14 +26,18 @@ src/
 ├── intersections/
 │   └── segment2.rs         # segment_intersection_kind (predicate) /
 │                            # segment_intersection (construction), split per §4.2
-└── polygon/
-    └── polygon2.rs          # Polygon2: signed_area (f64), orientation (exact),
-                              # basic_validity, find_self_intersection
+├── polygon/
+│   └── polygon2.rs          # Polygon2: signed_area (f64), orientation (exact),
+│                             # basic_validity, find_self_intersection
+└── hull/
+    └── convex_hull2.rs       # convex_hull2: Andrew monotone chain, built
+                               # entirely from orient2d — no new coordinates
+                               # constructed, so the whole algorithm is exact
 ```
 
-`predicates/constructions/`, `hull/`, `triangulation/`, `topology/` are
-empty placeholders reserved by §6's tree until the phase that fills them
-(Phase 3 onward).
+`predicates/constructions/`, `triangulation/`, `topology/` are empty
+placeholders reserved by §6's tree until the phase that fills them (Phase 4
+onward).
 
 ## Layering (§4.2)
 
@@ -72,7 +76,20 @@ empty placeholders reserved by §6's tree until the phase that fills them
    could round through cancellation for a near-degenerate polygon).
    `basic_validity()`/`find_self_intersection()` compose layers 2–4, same
    as layer 3.
-6. **Hull, triangulation, topology algorithms** do not exist yet (Phase 3
+6. **Convex hull** (`hull::convex_hull2`) — Andrew monotone chain, built
+   entirely from `orient2d` turn tests plus an input sort. Unlike layers 3–5,
+   this algorithm's output is *fully exact*, not just its component
+   predicate calls: every returned vertex is copied from an original input
+   `Point2`, never a computed/interpolated coordinate — there is nothing
+   here analogous to `segment_intersection`'s non-exact `Proper` case. The
+   fully collinear input case is detected explicitly with its own `orient2d`
+   precheck up front, rather than inferred from the chain construction's
+   output length — a length-based heuristic (e.g. "the lower chain used
+   every point") is not reliable, since a genuinely 2D "valley" point set
+   can legitimately do the same thing without being collinear (ruled out by
+   a concrete counterexample during design; see `docs/degeneracy-policy.md`
+   and `tasks/lessons.md`).
+7. **Triangulation, topology algorithms** do not exist yet (Phase 4
    onward).
 
 ## Data flow for a predicate call

@@ -2,6 +2,8 @@
 //! directory layout. Cargo only auto-discovers `tests/*.rs` files, not
 //! nested ones, so this just declares the submodules.
 
+#[path = "differential/convex_hull2.rs"]
+mod convex_hull2;
 #[path = "differential/incircle.rs"]
 mod incircle;
 #[path = "differential/insphere.rs"]

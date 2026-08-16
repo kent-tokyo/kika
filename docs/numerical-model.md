@@ -380,6 +380,25 @@ balanced `merge_all`, just always exact rather than filter-then-exact.
 (the actual `f64` area value, not just its sign) — same
 predicate/construction split as everywhere else in Phase 2.
 
+## Phase 3: convex hull is fully exact, unlike most Phase 2 constructions
+
+`convex_hull2` is the first algorithm in the crate whose entire output is
+exact, not just its component predicate calls' signs. It uses `orient2d`
+for every turn test (both the monotone-chain scan and the collinearity
+precheck) and a `total_cmp`-based sort for ordering, but constructs no new
+coordinate anywhere — every vertex in the returned `Polygon2` is a value
+copied directly from the input slice. There is no analog of
+`segment_intersection`'s non-exact `Proper` case here, and no ADR-004
+deferral applies: "exact construction" for a hull is trivial because a hull
+never needs to compute an intersection or interpolation, only select a
+subset of its input.
+
+The one place this phase's design needed care was **which** subset to
+select for a fully collinear input, not how to compute a new coordinate:
+see `docs/degeneracy-policy.md`'s convex-hull table and `tasks/lessons.md`
+for the self-retracing-chain bug found (and the false-positive detection
+heuristic ruled out) while designing it, before any code existed.
+
 ## What is *not* claimed
 
 This is a two-stage (filter + exact) model, not Shewchuk's three-stage

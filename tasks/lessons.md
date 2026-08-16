@@ -97,3 +97,38 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   ×3 here) needs its *own* degenerate-case analysis; composing exact
   parts doesn't automatically make the composition's edge cases exact.
   See `docs/degeneracy-policy.md` and `tests/regression/point_in_triangle.rs`.
+- Phase 3 design-time bug, caught by hand-tracing before writing any code:
+  the standard Andrew monotone-chain algorithm, applied naively to a fully
+  collinear point set in "keep all boundary points" mode, produces a
+  self-retracing/duplicated result (e.g. `[A,B,C,D,C,B]` for 4 collinear
+  points) — both the lower and upper chains independently retain every
+  point, since nothing ever triggers a pop in either direction. Fixed by
+  detecting full collinearity explicitly (an `orient2d` check against the
+  two lexicographic extremes) before running the chain construction at
+  all, rather than letting the general algorithm hit the case. See
+  `docs/degeneracy-policy.md` and `src/hull/convex_hull2.rs`.
+- Phase 3, a second design-time check that paid off: considered detecting
+  the fully collinear case *after* the fact instead, from the chain
+  lengths (e.g. "the lower chain absorbed every point"), which would avoid
+  the extra `orient2d` sweep. Verified by hand-checking a "valley" point
+  set (samples of `y = x^2`, genuinely 2D, not collinear) that this
+  specific heuristic gives a false positive — a convex/concave curve
+  legitimately puts every point on one monotone chain while the other
+  stays trivial. Kept the explicit precheck instead; see
+  `tests/differential/convex_hull2.rs`'s `valley_shape_is_not_treated_as_collinear`.
+  Lesson: a proposed simplification that trades an explicit check for an
+  inferred one needs the same "verify before trusting" treatment as any
+  other numerical claim — a plausible-sounding heuristic is a hypothesis,
+  not a fact, even when it comes from a second opinion.
+- Phase 3 bug, caught during review before writing the implementation: a
+  planned `total_cmp`-based sort+dedup for collapsing duplicate input
+  points didn't account for `total_cmp` treating `-0.0 < 0.0` while
+  `Point2`'s `PartialEq` (and IEEE-754) treat them as equal. A
+  consecutive-element `dedup()` after such a sort can miss a real
+  duplicate if a third point's other coordinate happens to sort between
+  the `-0.0`/`0.0` copies (e.g. `(-0.0,5.0)`, `(0.0,3.0)`, `(0.0,5.0)` —
+  the two equal points land 2 apart, not adjacent). Fixed by normalizing
+  `-0.0` to `0.0` in the sort comparator itself, so the sort's notion of
+  "equal" matches `PartialEq`'s exactly and equal points are always
+  adjacent. See `src/hull/convex_hull2.rs`'s `normalize_zero` and the
+  regression-style unit test `signed_zero_duplicate_collapses`.

@@ -10,7 +10,7 @@ robust 2D/3D computational geometry: exact predicates with adaptive/exact
 fallback arithmetic, and — in later phases — triangulation, hull, and
 polygon algorithms built on top of that foundation.
 
-Status: **pre-alpha (Phase 1 + 2 complete, Phase 3 not started).** No
+Status: **pre-alpha (Phase 1 + 2 + 3 complete, Phase 4 not started).** No
 stability guarantees. See
 [Roadmap](#roadmap) for what does not exist yet — **Kika is not a CGAL
 replacement yet**, it is the robust kernel a future one would be built on.
@@ -105,10 +105,23 @@ in pure Rust, that's what Phase 1 of Kika is.
   Checked against an independent exact-rational oracle in
   `tests/differential/`.
 
-All four predicates complete v0.1's robust-predicate scope. Everything
-past this point (primitives beyond `Point2`/`Point3`, intersections,
-hull, triangulation, exact constructions) is Phase 2 and later — see
-[Roadmap](#roadmap).
+* `convex_hull2` / `HullBoundaryPoints` — 2D convex hull via Andrew's
+  monotone chain. `ExtremesOnly` (default) keeps only strict corners;
+  `KeepAllOnBoundary` also keeps boundary points collinear with their
+  neighbors. Counterclockwise output, starting at the lexicographically
+  smallest input point, independent of input order; duplicate input points
+  are collapsed first. Fully exact — every returned vertex is copied from
+  an original input `Point2`, since the algorithm is built entirely from
+  `orient2d` with no interpolation or division anywhere. Degenerate inputs
+  (0/1/2 points, all-collinear) are handled explicitly, not left to the
+  general algorithm — see
+  [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md).
+
+All four predicates complete v0.1's robust-predicate scope; the primitives,
+intersections, polygon, and convex hull above complete Phases 2 and 3.
+Everything past this point (Delaunay triangulation, certified/exact
+constructions, constrained Delaunay, polygon Boolean) is Phase 4 and
+later — see [Roadmap](#roadmap).
 
 ## Exact predicates vs. exact constructions
 
@@ -175,9 +188,9 @@ at your option.
 
 ## Roadmap
 
-Phase 1 (robust predicates) and Phase 2 (2D primitives and intersections)
-are complete. Not yet implemented: convex hull; Delaunay triangulation;
-certified/exact constructions (Phase 5, including an exact `Proper`
-segment-intersection point); constrained Delaunay; polygon/mesh Boolean;
-mesh repair; surface reconstruction; point-cloud processing. See
+Phase 1 (robust predicates), Phase 2 (2D primitives and intersections), and
+Phase 3 (2D convex hull) are complete. Not yet implemented: Delaunay
+triangulation; certified/exact constructions (Phase 5, including an exact
+`Proper` segment-intersection point); constrained Delaunay; polygon/mesh
+Boolean; mesh repair; surface reconstruction; point-cloud processing. See
 [`tasks/todo.md`](tasks/todo.md) for the phased backlog.

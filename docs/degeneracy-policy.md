@@ -34,10 +34,29 @@ about its inputs, not a choice among multiple valid answers.
 | Consecutive duplicate polygon vertices (including the wraparound edge) | `Polygon2::basic_validity()` returns `PolygonBasicValidity::ConsecutiveDuplicateVertices`, checked *before* the collinearity/zero-area check. Not treated as a self-intersection — that's a separate, more expensive check. |
 | Adjacent polygon edges sharing an endpoint | `Polygon2::find_self_intersection()` explicitly excludes every adjacent edge pair (including the wraparound pair between the first and last edge) from the O(n²) check — the shared vertex is expected structure, not a self-intersection. Verified for both a convex polygon and a minimal triangle (where *every* edge pair is adjacent, so the check must return `None` for any triangle, degenerate or not). |
 
+## Convex hull degeneracies (Phase 3, implemented)
+
+| Case | Behavior |
+|---|---|
+| Empty input | `convex_hull2` returns a `Polygon2` with 0 vertices. |
+| Single distinct point | Returns that one point, regardless of `boundary`. |
+| Two distinct points | Returns both, regardless of `boundary`. |
+| Duplicate points (exact coordinate equality, incl. `-0.0`/`0.0`) | Collapsed before hulling via a sort+dedup pass; do not affect the result. The sort comparator normalizes `-0.0` to `0.0` so it agrees with `Point2`'s `PartialEq` — a plain `total_cmp`-based sort without that normalization can place `PartialEq`-equal points non-adjacently (found during design, before writing the hull code; see `tasks/lessons.md`), which would make a consecutive-element `dedup()` miss the duplicate. |
+| All input points exactly collinear (≥3 distinct points) | The general lower/upper monotone-chain construction is **not** run — applied naively to a fully collinear set, both chains independently retain every point (nothing ever triggers a pop in either direction), producing a self-retracing result like `[A,B,C,D,C,B]` for 4 collinear points. Detected via an explicit `orient2d` check against the two lexicographic extremes before running the chains (found by hand-tracing the algorithm during design). `ExtremesOnly` returns just the two extremes; `KeepAllOnBoundary` returns every distinct point once, in sorted order, with **no** duplicated closing point. |
+| `KeepAllOnBoundary` result for a fully collinear input | The returned `Polygon2`'s implicit closing edge (last vertex back to first) retraces the same line as every other edge; `Polygon2::find_self_intersection()` will report overlaps on it. This is a documented consequence of representing a zero-width hull as a vertex ring, not a bug — see the doc comment on `convex_hull2`. |
+| Collinear boundary point on an otherwise non-degenerate hull (e.g. a point on a square's edge, between two corners) | `ExtremesOnly` drops it (only strict corners survive); `KeepAllOnBoundary` keeps it. |
+| Strictly interior point | Dropped under both `boundary` modes. |
+| Points forming a "valley" (all necessary corners on one monotone chain, e.g. samples of `y = x²`) | **Not** treated as collinear — ruled out explicitly during design as a false-positive risk for a length-based collinearity heuristic (`lower chain used every point` does *not* imply collinear; verified with this exact counterexample before choosing the `orient2d`-based precheck instead). See `tests/differential/convex_hull2.rs`'s `valley_shape_is_not_treated_as_collinear`. |
+
+Output is always counterclockwise-wound and starts at the lexicographically
+smallest input point (by `(x, y)`), independent of input order — verified by
+permutation-invariance property tests
+(`tests/differential/convex_hull2.rs`).
+
 ## Algorithm-level tie-breaking (not yet applicable)
 
-Convex hull (Phase 3), Delaunay triangulation (Phase 4), and polygon
-Boolean (Phase 6) all have cases with more than one topologically valid
-output (e.g. Delaunay triangulation of cocircular points). Deterministic
-tie-break rules for those cases will be added to this document when each
-phase is implemented — not speculated here ahead of the algorithms.
+Delaunay triangulation (Phase 4) and polygon Boolean (Phase 6) have cases
+with more than one topologically valid output (e.g. Delaunay triangulation
+of cocircular points). Deterministic tie-break rules for those cases will be
+added to this document when each phase is implemented — not speculated here
+ahead of the algorithms.

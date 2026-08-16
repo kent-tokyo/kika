@@ -60,6 +60,20 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   vertex from being reported as a self-intersection).
 
   This completes Phase 2 (2D Primitives and Intersections).
+- `convex_hull2` / `HullBoundaryPoints`: 2D convex hull via Andrew's
+  monotone chain. `ExtremesOnly` (default) keeps only strict corners;
+  `KeepAllOnBoundary` also keeps boundary points collinear with their
+  neighbors. Output is counterclockwise, starts at the lexicographically
+  smallest input point, and is independent of input order. Duplicate input
+  points (exact coordinate equality) are collapsed before hulling. Fully
+  exact: every returned vertex is copied from an original input `Point2`,
+  never a computed coordinate — no `Proper`-style non-exactness case exists
+  here, since the algorithm is built entirely from `orient2d`. Checked via
+  structural property tests (input-point containment, convex winding,
+  permutation invariance, idempotence), not a from-scratch exact
+  reimplementation — see `tests/differential/convex_hull2.rs`.
+
+  This completes Phase 3 (2D Convex Hull).
 
 ### Fixed
 
