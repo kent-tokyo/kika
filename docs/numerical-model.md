@@ -91,6 +91,53 @@ If `|determinant| > error_bound`, the sign of `determinant` is provably the
 true sign and is returned without any fallback. Otherwise, the exact
 fallback (above) runs.
 
+## Known limitation (fixed): exactness starts at the original coordinates
+
+Found during development, not a present-tense limitation — recorded here
+because it shaped the exact-fallback design and is exactly the kind of
+mistake worth guarding against when `incircle`/`insphere` are added.
+
+The first version of `orient2d_exact`/`orient3d_exact` reused the
+filter's already-computed `acx = a.x() - c.x()` (a single, possibly
+rounding, `f64` subtraction) and only went exact *from that point on*
+(building `product_expansion(acx, bcy)` etc.). That is exact relative to
+the *rounded* difference, not the original coordinates: `fl(a-b)` for two
+arbitrary finite `f64`s can require more than 53 bits to represent
+exactly and therefore loses information (concretely: `a.x()=2^60`,
+`c.x()=1.0` gives `fl(a.x()-c.x()) == 2^60`, discarding the `-1.0`
+entirely — confirmed with `two_sum`, whose second component is `-1.0`,
+not `0.0`).
+
+A 2,000,000-trial random search comparing this once-rounded-then-exact
+sign against a fully exact sign (computed from the original coordinates
+via exact rational arithmetic) found 1,327 disagreements, all requiring
+wide dynamic range *within a single predicate call* (e.g. coordinates
+around `2^60` alongside small integers) — same-scale random inputs never
+exposed it, which is why the original differential test suite (same-scale
+generators) passed despite the bug.
+
+**Fix:** `orient2d_exact`/`orient3d_exact` now build every coordinate
+difference as an exact 2-component expansion via `diff_expansion` (`=
+two_sum(a, -b)`, exact for *any* finite `a`, `b` — no exponent-range
+restriction, unlike `two_product`) directly from the original
+`Point2`/`Point3` coordinates, and multiply those expansions together via
+the new `product_of_expansions` primitive (distributes `scale_expansion`
+over each component of the second expansion, mirroring how
+`scale_expansion` itself distributes `product_expansion`). The filter
+path is unchanged — it was already derived treating the true (unrounded)
+coordinate difference as ground truth, so its error bound already covers
+the subtraction's own rounding; only the fallback's starting point
+changed. See `tests/regression/orient2d.rs` for the pinned minimized
+cases, and `tests/differential/*.rs`'s `mixed_intra_call_magnitude` tests
+for the regression-class coverage.
+
+**Consequence for `incircle`/`insphere`:** their lifted coordinate
+(`adz = adx^2 + ady^2` and higher) must be built the same way — as an
+exact expansion of an exact expansion (`product_of_expansions(adx, adx)`
+summed with `product_of_expansions(ady, ady)`), never a squared rounded
+`f64` — or they inherit this bug in a compounded form (a rounded square
+of an already-rounded difference).
+
 ## Known limitation: exact-product representability floor
 
 `two_product` (and by extension `grow_expansion`/`expansion_sum` built on

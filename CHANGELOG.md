@@ -20,3 +20,14 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 - `orient3d`: same filter + exact-fallback design as `orient2d`. Checked
   against an independent exact-rational oracle in
   `tests/differential/orient3d.rs`.
+
+### Fixed
+
+- `orient2d`/`orient3d` exact fallback now builds coordinate differences
+  as exact expansions from the original `Point2`/`Point3` coordinates
+  (`diff_expansion`, `product_of_expansions`) instead of reusing the
+  filter's once-rounded `f64` subtraction. The old behavior was only
+  exact relative to that rounding, not the true input coordinates, and
+  could return the wrong sign for calls mixing widely different
+  coordinate magnitudes (e.g. `2^60` alongside small integers); see
+  `tests/regression/orient2d.rs` and `docs/numerical-model.md`.

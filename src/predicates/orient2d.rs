@@ -1,4 +1,4 @@
-use super::expansion::{expansion_sign, expansion_sum, product_expansion};
+use super::expansion::{diff_expansion, expansion_sign, expansion_sum, product_of_expansions};
 use super::sign::{Orientation, Sign};
 use crate::primitives::Point2;
 
@@ -50,13 +50,26 @@ pub fn orient2d(a: Point2, b: Point2, c: Point2) -> Orientation {
         return Orientation::from(Sign::of(det));
     }
 
-    Orientation::from(orient2d_exact(acx, acy, bcx, bcy))
+    Orientation::from(orient2d_exact(a, b, c))
 }
 
-fn orient2d_exact(acx: f64, acy: f64, bcx: f64, bcy: f64) -> Sign {
-    let left = product_expansion(acx, bcy);
-    let right = product_expansion(acy, bcx);
-    let neg_right = [-right[0], -right[1]];
+/// Exact fallback: builds `acx`, `acy`, `bcx`, `bcy` as *exact* 2-term
+/// expansions from the original coordinates (not the once-rounded `f64`
+/// differences the filter uses) via [`diff_expansion`], then multiplies
+/// those expansions exactly via [`product_of_expansions`]. Reusing the
+/// filter's already-rounded differences here would only be exact relative
+/// to that rounding, not to the true input coordinates — see
+/// `docs/numerical-model.md` "Known limitation: exactness starts at the
+/// original coordinates".
+fn orient2d_exact(a: Point2, b: Point2, c: Point2) -> Sign {
+    let acx = diff_expansion(a.x(), c.x());
+    let acy = diff_expansion(a.y(), c.y());
+    let bcx = diff_expansion(b.x(), c.x());
+    let bcy = diff_expansion(b.y(), c.y());
+
+    let left = product_of_expansions(&acx, &bcy);
+    let right = product_of_expansions(&acy, &bcx);
+    let neg_right: Vec<f64> = right.iter().map(|v| -v).collect();
     let det = expansion_sum(&left, &neg_right);
     expansion_sign(&det)
 }

@@ -186,6 +186,27 @@ fn random_points_multiple_scales() {
 }
 
 #[test]
+fn mixed_intra_call_magnitude() {
+    // See the identically-named test in tests/differential/orient2d.rs:
+    // regression coverage for the exact-fallback exactness bug found
+    // during development, which only manifests with wide intra-call
+    // dynamic range.
+    let mut rng = Xorshift64(0x1032547698BADCFE);
+    let magnitudes = [1.0_f64, 1e3, 1e-3, 2.0_f64.powi(60), 2.0_f64.powi(-40)];
+    for _ in 0..400 {
+        let coord = |rng: &mut Xorshift64| {
+            let m = magnitudes[(rng.next_u64() as usize) % magnitudes.len()];
+            rng.next_f64_in(m)
+        };
+        let a = (coord(&mut rng), coord(&mut rng), coord(&mut rng));
+        let b = (coord(&mut rng), coord(&mut rng), coord(&mut rng));
+        let c = (coord(&mut rng), coord(&mut rng), coord(&mut rng));
+        let d = (coord(&mut rng), coord(&mut rng), coord(&mut rng));
+        check(a, b, c, d);
+    }
+}
+
+#[test]
 fn random_near_coplanar_stresses_filter_boundary() {
     let mut rng = Xorshift64(0x13198A2E03707344);
     for &scale in &[1.0_f64, 1e-30, 1e30] {

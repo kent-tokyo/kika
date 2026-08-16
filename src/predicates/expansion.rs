@@ -86,6 +86,15 @@ pub(crate) fn product_expansion(a: f64, b: f64) -> [f64; 2] {
     [lo, hi]
 }
 
+/// The two-component nonoverlapping expansion for the exact value `a - b`,
+/// for any finite `a`, `b` — no exponent-range restriction, unlike
+/// [`product_expansion`] (this is `two_sum(a, -b)`, and negation is
+/// always exact).
+pub(crate) fn diff_expansion(a: f64, b: f64) -> [f64; 2] {
+    let (hi, lo) = two_sum(a, -b);
+    [lo, hi]
+}
+
 /// Merges `addend`'s components into `base` (both nonoverlapping
 /// expansions), returning a nonoverlapping expansion of length
 /// `base.len() + addend.len()` with the sum of both.
@@ -118,6 +127,24 @@ pub(crate) fn scale_expansion(e: &[f64], s: f64) -> Vec<f64> {
     let mut result: Vec<f64> = vec![];
     for &e_i in e {
         result = expansion_sum(&result, &product_expansion(e_i, s));
+    }
+    result
+}
+
+/// The exact expansion for `e * f` (two nonoverlapping expansions
+/// multiplied together): distributes over each component of `f` via
+/// [`scale_expansion`], then merges. Needed wherever a predicate's exact
+/// fallback must multiply two *derived* quantities (e.g. two coordinate
+/// differences) rather than a raw input scalar — see
+/// `docs/numerical-model.md` "Known limitation: exactness starts at the
+/// original coordinates" for why this matters.
+///
+/// ponytail: same O(n*m) tradeoff as [`expansion_sum`]/[`scale_expansion`];
+/// fine for Phase 1's small, fixed-size determinant expansions.
+pub(crate) fn product_of_expansions(e: &[f64], f: &[f64]) -> Vec<f64> {
+    let mut result: Vec<f64> = vec![];
+    for &f_i in f {
+        result = expansion_sum(&result, &scale_expansion(e, f_i));
     }
     result
 }
@@ -352,6 +379,43 @@ mod tests {
                 "scale_expansion(pair, {s})"
             );
         }
+    }
+
+    #[test]
+    fn diff_expansion_is_exact() {
+        // Includes the specific lossy-subtraction pattern that exposed
+        // the exact-fallback exactness bug: a large power-of-two magnitude
+        // paired with a much smaller one, where fl(a-b) alone discards
+        // information that diff_expansion must retain.
+        let pairs = [
+            (123.456, -789.012),
+            (2.0_f64.powi(60), 1.0),
+            (2.0_f64.powi(60), 3.0),
+            (-2.0_f64.powi(55), 7.0),
+            (0.0, 0.0),
+            (5.0, 5.0),
+        ];
+        for (a, b) in pairs {
+            let diff = diff_expansion(a, b);
+            let expected = exact(a) - exact(b);
+            assert_eq!(
+                expansion_exact_sum(&diff),
+                expected,
+                "diff_expansion({a}, {b})"
+            );
+        }
+    }
+
+    #[test]
+    fn product_of_expansions_is_exact() {
+        // Multiplies two *derived* (diff) expansions together, the shape
+        // orient2d_exact/orient3d_exact actually need.
+        let e = diff_expansion(2.0_f64.powi(60), 1.0); // exact acx-style value
+        let f = diff_expansion(3.0, 2.0_f64.powi(55)); // exact bcy-style value
+        let product = product_of_expansions(&e, &f);
+        let expected =
+            (exact(2.0_f64.powi(60)) - exact(1.0)) * (exact(3.0) - exact(2.0_f64.powi(55)));
+        assert_eq!(expansion_exact_sum(&product), expected);
     }
 
     #[test]

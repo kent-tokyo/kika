@@ -25,7 +25,14 @@ adaptive precision → exact representation.
    nonoverlapping floating-point expansion — see ADR-004). The sign of a
    correctly-formed nonoverlapping expansion equals the sign of its most
    significant nonzero component, which gives an exact answer with no
-   further rounding.
+   further rounding. Critically, "exact" here means exact relative to the
+   *original input coordinates*, not relative to any once-rounded
+   intermediate: every coordinate difference the fallback needs is built
+   as an exact expansion (`diff_expansion`) straight from the `Point2`/
+   `Point3` values, not inherited from the filter's rounded `f64`
+   subtraction. See `docs/numerical-model.md` "Known limitation (fixed):
+   exactness starts at the original coordinates" for a real bug this
+   distinction caught during development.
 
 We deliberately do **not** implement Shewchuk's full three-tier "adaptive
 precision" scheme (filter → increasing-precision estimate → exact), which

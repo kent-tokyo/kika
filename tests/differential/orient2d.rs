@@ -160,6 +160,32 @@ fn random_points_multiple_scales() {
 }
 
 #[test]
+fn mixed_intra_call_magnitude() {
+    // Regression coverage for a real bug found during development: the
+    // exact fallback used to reuse a once-rounded coordinate difference
+    // (e.g. `a.x() - c.x()` computed as a single f64 subtraction) instead
+    // of recomputing exactly from the original coordinates. That's only
+    // wrong when a single orient2d call mixes wildly different coordinate
+    // magnitudes (e.g. 2^60 alongside small integers) — same-scale inputs
+    // never exposed it, which is exactly why this generator is separate
+    // from `random_points_multiple_scales` above. See
+    // `docs/numerical-model.md` "Known limitation: exactness starts at
+    // the original coordinates" and `tests/regression/orient2d.rs`.
+    let mut rng = Xorshift64(0x0FEDCBA987654321);
+    let magnitudes = [1.0_f64, 1e3, 1e-3, 2.0_f64.powi(60), 2.0_f64.powi(-40)];
+    for _ in 0..500 {
+        let coord = |rng: &mut Xorshift64| {
+            let m = magnitudes[(rng.next_u64() as usize) % magnitudes.len()];
+            rng.next_f64_in(m)
+        };
+        let a = (coord(&mut rng), coord(&mut rng));
+        let b = (coord(&mut rng), coord(&mut rng));
+        let c = (coord(&mut rng), coord(&mut rng));
+        check(a, b, c);
+    }
+}
+
+#[test]
 fn random_near_collinear_stresses_filter_boundary() {
     // Perturb a point that starts exactly on the a-b line by a tiny
     // random amount, at varied scales: this deliberately walks values

@@ -1,4 +1,4 @@
-use super::expansion::{expansion_sign, expansion_sum, product_expansion, scale_expansion};
+use super::expansion::{diff_expansion, expansion_sign, expansion_sum, product_of_expansions};
 use super::sign::Sign;
 use crate::primitives::Point3;
 
@@ -68,37 +68,42 @@ pub fn orient3d(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
         return Sign::of(det);
     }
 
-    orient3d_exact(adx, ady, adz, bdx, bdy, bdz, cdx, cdy, cdz)
+    orient3d_exact(a, b, c, d)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn orient3d_exact(
-    adx: f64,
-    ady: f64,
-    adz: f64,
-    bdx: f64,
-    bdy: f64,
-    bdz: f64,
-    cdx: f64,
-    cdy: f64,
-    cdz: f64,
-) -> Sign {
+/// Exact fallback: builds every `Xdy`-style term as an *exact* expansion
+/// from the original coordinates via [`diff_expansion`], then multiplies
+/// with [`product_of_expansions`] throughout. See `orient2d_exact`'s doc
+/// comment and `docs/numerical-model.md` "Known limitation: exactness
+/// starts at the original coordinates" for why reusing the filter's
+/// once-rounded `adx` etc. here would not be fully exact.
+fn orient3d_exact(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
+    let adx = diff_expansion(a.x(), d.x());
+    let ady = diff_expansion(a.y(), d.y());
+    let adz = diff_expansion(a.z(), d.z());
+    let bdx = diff_expansion(b.x(), d.x());
+    let bdy = diff_expansion(b.y(), d.y());
+    let bdz = diff_expansion(b.z(), d.z());
+    let cdx = diff_expansion(c.x(), d.x());
+    let cdy = diff_expansion(c.y(), d.y());
+    let cdz = diff_expansion(c.z(), d.z());
+
     let bc_yz = expansion_sum(
-        &product_expansion(bdy, cdz),
-        &negate(&product_expansion(bdz, cdy)),
+        &product_of_expansions(&bdy, &cdz),
+        &negate(&product_of_expansions(&bdz, &cdy)),
     );
     let bc_xz = expansion_sum(
-        &product_expansion(bdx, cdz),
-        &negate(&product_expansion(bdz, cdx)),
+        &product_of_expansions(&bdx, &cdz),
+        &negate(&product_of_expansions(&bdz, &cdx)),
     );
     let bc_xy = expansion_sum(
-        &product_expansion(bdx, cdy),
-        &negate(&product_expansion(bdy, cdx)),
+        &product_of_expansions(&bdx, &cdy),
+        &negate(&product_of_expansions(&bdy, &cdx)),
     );
 
-    let term_a = scale_expansion(&bc_yz, adx);
-    let term_b = scale_expansion(&bc_xz, ady);
-    let term_c = scale_expansion(&bc_xy, adz);
+    let term_a = product_of_expansions(&adx, &bc_yz);
+    let term_b = product_of_expansions(&ady, &bc_xz);
+    let term_c = product_of_expansions(&adz, &bc_xy);
 
     let det = expansion_sum(&expansion_sum(&term_a, &negate(&term_b)), &term_c);
     expansion_sign(&det)

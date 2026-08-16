@@ -16,3 +16,15 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   error term's own precision), landing near `2^-968`. Don't trust a
   first-pass error-bound derivation without checking it against measured
   data — see `docs/numerical-model.md` "Known limitation".
+- Real bug, caught before release: `orient2d_exact`/`orient3d_exact`
+  reused the filter's once-rounded coordinate difference (`a.x()-c.x()`
+  as a plain f64) instead of recomputing it exactly. Same-scale
+  differential test generators (all of `a`,`b`,`c` drawn from one scale
+  bucket) never exposed it — only a generator mixing wildly different
+  magnitudes *within a single call* (e.g. `2^60` next to small integers)
+  did, found via a 2M-trial random search outside the normal test suite.
+  Lesson: a differential test suite's coverage is defined by its
+  generators; same-scale-only generators systematically miss
+  intra-call dynamic-range bugs. See `docs/numerical-model.md` "Known
+  limitation (fixed): exactness starts at the original coordinates" and
+  `tests/regression/orient2d.rs`.
