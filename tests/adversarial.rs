@@ -10,3 +10,5 @@ mod insphere;
 mod orient2d;
 #[path = "adversarial/orient3d.rs"]
 mod orient3d;
+#[path = "adversarial/segment_intersection.rs"]
+mod segment_intersection;

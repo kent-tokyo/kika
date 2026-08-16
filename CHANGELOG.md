@@ -41,6 +41,16 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   explicit degenerate-case handling (zero-length segment; collinear
   triangle). Checked against independent exact-rational oracles in
   `tests/differential/`.
+- `segment_intersection_kind` / `segment_intersection`: robust 2D segment
+  intersection, classification (`None`/`Proper`/`EndpointTouch`/
+  `CollinearTouch`/`CollinearOverlap`) and coordinate construction kept
+  as separate functions per §4.2. Classification never divides or builds
+  a new coordinate (an `Aabb2` fast-reject runs before any predicate
+  call); construction is exact except for `Proper`, which needs a
+  genuinely new coordinate (ordinary `f64` interpolation, not certified —
+  Phase 5 territory). Checked against an independent exact-rational
+  reimplementation of the whole decision tree (not just the underlying
+  `orient2d` calls) in `tests/differential/`.
 
 ### Fixed
 

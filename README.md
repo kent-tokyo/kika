@@ -61,6 +61,16 @@ in pure Rust, that's what Phase 1 of Kika is.
   algorithm — one case initially didn't and was caught by testing, see
   `docs/degeneracy-policy.md`. Checked against an independent
   exact-rational oracle in `tests/differential/`.
+* `segment_intersection_kind` / `segment_intersection` — robust 2D
+  segment intersection, classification and coordinate construction
+  deliberately kept as separate functions (§4.2): classification
+  (`None`/`Proper`/`EndpointTouch`/`CollinearTouch`/`CollinearOverlap`)
+  never divides or builds a new coordinate, with an `Aabb2`-based
+  fast-reject ahead of any predicate call. Construction is exact for
+  every case *except* `Proper`, which needs a genuinely new coordinate —
+  see [Exact predicates vs. exact constructions](#exact-predicates-vs-exact-constructions).
+  Checked against an independent exact-rational oracle in
+  `tests/differential/`.
 * `Sign`, `Orientation` — meaningful enums returned by predicates (never a
   raw determinant, never an ambiguous `bool`).
 * `orient2d` — exact-sign 2D orientation predicate. Uses a fast
@@ -94,11 +104,17 @@ hull, triangulation, exact constructions) is Phase 2 and later — see
 
 Kika's predicates (`orient2d` etc.) guarantee a mathematically correct
 **sign**. They do not, by themselves, guarantee that a *generated
-coordinate* (e.g. a future segment-intersection point) is exact — that is a
-separate problem ("construction"), not yet addressed. See
-[`docs/architecture.md`](docs/architecture.md) §4.2 and ADR-004. Do not
-assume constructions implemented in later phases carry the same exactness
-guarantee as today's predicates until their own docs say so.
+coordinate* is exact — that is a separate problem ("construction"), not
+yet solved (real exact/certified constructions are Phase 5, ADR-004).
+Concretely, today: `segment_intersection`'s `Proper`-crossing point is
+computed via ordinary `f64` parametric interpolation, with ordinary
+floating-point rounding error — unlike every *other* case that function
+can return (`EndpointTouch`/`CollinearTouch`/`CollinearOverlap`), which
+reuse an original input coordinate exactly, since the shared point *is*
+one of the inputs. See [`docs/architecture.md`](docs/architecture.md)
+§4.2 and ADR-004. Do not assume constructions implemented in later phases
+carry the same exactness guarantee as today's predicates until their own
+docs say so.
 
 ## Degenerate cases
 
@@ -149,9 +165,9 @@ at your option.
 
 ## Roadmap
 
-Not yet implemented: segment intersection; polygon type, area, validity,
-self-intersection detection; convex hull; Delaunay triangulation; exact
-constructions; constrained Delaunay; polygon/mesh Boolean; mesh repair;
-surface reconstruction; point-cloud processing. See
-[`tasks/todo.md`](tasks/todo.md) for the
-phased backlog.
+Not yet implemented: polygon type, area, validity, self-intersection
+detection; convex hull; Delaunay triangulation; certified/exact
+constructions (Phase 5, including an exact `Proper` segment-intersection
+point); constrained Delaunay; polygon/mesh Boolean; mesh repair; surface
+reconstruction; point-cloud processing. See
+[`tasks/todo.md`](tasks/todo.md) for the phased backlog.

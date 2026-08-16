@@ -344,6 +344,24 @@ lossless in IEEE-754 up to its own overflow/underflow limits, and would
 push the floor down by roughly the scaling exponent. Not implemented in
 Phase 1 (no known need).
 
+## Phase 2: composed queries are exact predicates, but not all their output is
+
+`Segment2::relation_to`, `Triangle2::relation_to`, and
+`segment_intersection_kind` are exact — they only ever compare
+already-computed predicate results and raw input coordinates, no new
+arithmetic. `segment_intersection`'s construction side is **not**
+uniformly exact: `EndpointTouch`/`CollinearTouch`/`CollinearOverlap`
+reuse an original input coordinate directly (exact, by definition — the
+shared point *is* one of the four inputs), but `Proper` computes a new
+coordinate via ordinary `f64` parametric line-line interpolation, with no
+exactness guarantee. This is intentional, not an oversight: ADR-004
+explicitly defers a real exact/certified construction strategy to Phase
+5, and Phase 2's own scope note says not to skip ahead of it. Until then,
+a `Proper` intersection point may carry ordinary floating-point rounding
+error, and — in astronomically extreme, near-parallel-line inputs — is
+not even guaranteed finite (see `proper_intersection_point`'s doc
+comment in `src/intersections/segment2.rs`).
+
 ## What is *not* claimed
 
 This is a two-stage (filter + exact) model, not Shewchuk's three-stage

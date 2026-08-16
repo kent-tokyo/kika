@@ -14,3 +14,5 @@ mod orient3d;
 mod point_in_triangle;
 #[path = "differential/point_on_segment.rs"]
 mod point_on_segment;
+#[path = "differential/segment_intersection.rs"]
+mod segment_intersection;
