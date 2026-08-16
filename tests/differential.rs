@@ -4,6 +4,8 @@
 
 #[path = "differential/incircle.rs"]
 mod incircle;
+#[path = "differential/insphere.rs"]
+mod insphere;
 #[path = "differential/orient2d.rs"]
 mod orient2d;
 #[path = "differential/orient3d.rs"]

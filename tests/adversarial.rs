@@ -4,6 +4,8 @@
 
 #[path = "adversarial/incircle.rs"]
 mod incircle;
+#[path = "adversarial/insphere.rs"]
+mod insphere;
 #[path = "adversarial/orient2d.rs"]
 mod orient2d;
 #[path = "adversarial/orient3d.rs"]

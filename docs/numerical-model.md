@@ -24,14 +24,14 @@ ADR-005).
 * `two_sum(a, b) -> (hi, lo)`: `hi = fl(a+b)`, and `hi + lo == a + b` exactly
   (as real numbers), for **any** `f64` `a`, `b` (no magnitude ordering
   required). 6 flops.
-* `fast_two_sum(a, b) -> (hi, lo)`: same postcondition, 3 flops, but
-  requires `|a| >= |b|`.
 * `split(a) -> (hi, lo)`: splits a 53-bit mantissa into two ~26-bit halves
   whose product with another split value can be summed without rounding.
   Uses splitter `2^27 + 1`.
 * `two_product(a, b) -> (hi, lo)`: `hi = fl(a*b)`, and `hi + lo == a * b`
   exactly, for any `f64` `a`, `b`, built from two `split` calls and 17
   flops.
+* `product_expansion`/`diff_expansion`: the 2-component nonoverlapping
+  expansion for `a*b` / `a-b`.
 
 **Why not `f64::mul_add`:** see ADR-001. In short: exactness of an
 FMA-based `two_product` depends on the platform FMA/software-fallback being
@@ -40,10 +40,27 @@ x86_64/aarch64/wasm32. The split-based `two_product` uses only `+`, `-`,
 `*`, which Rust never silently contracts into fused operations — so it is
 exact and portable without relying on the FMA question at all.
 
-`grow_expansion(e, b) -> Vec<f64>`: adds a single `f64` `b` to a
-nonoverlapping expansion `e` (a `Vec<f64>` sorted by increasing magnitude,
-components pairwise nonoverlapping in the Shewchuk sense), producing a new
-nonoverlapping expansion with the same sum, length `|e| + 1`.
+**Combining expansions**, all built on `expansion_sum(base, addend) ->
+Vec<f64>` (merges two nonoverlapping expansions into one, same total
+sum): `scale_expansion` (expansion × scalar), `product_of_expansions`
+(expansion × expansion — needed once exactness must start at the
+original coordinates rather than a once-rounded intermediate, see below).
+`expansion_sum` itself is O(base.len()+addend.len()): merge the two
+(already magnitude-sorted) inputs by magnitude, then a single cascading
+`two_sum` pass over the merged sequence (Shewchuk's "linear-time
+expansion sum") — merging by magnitude, not just cascading, is what keeps
+the *nonoverlapping* postcondition needed for the sign trick below, not
+just the sum. `scale_expansion`/`product_of_expansions` combine their
+per-component pieces via `merge_all`, a **balanced binary-tree merge**,
+not a left-to-right fold: folding into a single growing accumulator costs
+O(count²) even with a linear `expansion_sum`, since each fold step's cost
+is proportional to the accumulator's current (ever-growing) size —
+halving the piece count at each tree level instead gives O(total_size ×
+log(count)). This is not a micro-optimization: the naive fold made
+`insphere`'s exact fallback take **16 seconds per call** on a degenerate
+input before the fix (degree-5 nesting compounds the quadratic cost
+across several levels) — see "Known limitation (fixed): naive expansion
+merging is quadratic" below.
 
 **Sign of an expansion:** for a nonoverlapping expansion in increasing
 order of magnitude, the sign of the total sum equals the sign of the last
@@ -93,7 +110,17 @@ etc.) and summarized below as each predicate is implemented:
   `f64` — see "Known limitation (fixed): exactness starts at the original
   coordinates" below for why that distinction matters. Verified against
   an independent oracle in `tests/differential/incircle.rs`.
-* `insphere`: same pattern, added as each lands.
+* `insphere`: implemented. See `INSPHERE_ERR_BOUND_FACTOR` in
+  `src/predicates/insphere.rs`. The 4x4 "lift to the 4D paraboloid"
+  determinant, expanded along the first row into four 3x3 cofactors
+  (`det3_with_precancel_bound` for the filter, `det3_exact` for the
+  fallback) — the same nested-cofactor structure as `orient3d`/
+  `incircle`, one level deeper. Both the filter-bound fix and the
+  exactness-from-original-coordinates fix generalized to this predicate
+  without needing new adjustments, confirmed by differential testing
+  (including the same `mixed_intra_call_magnitude` and cancellation-stress
+  generator classes used to originally find those two bugs). Verified
+  against an independent oracle in `tests/differential/insphere.rs`.
 
 If `|determinant| > error_bound`, the sign of `determinant` is provably the
 true sign and is returned without any fallback. Otherwise, the exact
@@ -139,6 +166,49 @@ before the outer row multiply — `orient3d` and `incircle` today,
 `tests/regression/incircle.rs`, `tests/differential/orient3d.rs`'s
 `cofactor_cancellation_stress`.
 
+## Known limitation (fixed): naive expansion merging is quadratic
+
+Found while implementing `insphere`: its exact fallback took **16
+seconds per call** on degenerate (duplicate-point / coplanar) inputs —
+completely impractical for a differential test suite running hundreds of
+cases, let alone real use.
+
+The first versions of `expansion_sum`, `scale_expansion`, and
+`product_of_expansions` combined pieces by folding left-to-right into a
+single growing accumulator (`result = combine(result, next_piece)` in a
+loop). Even if each individual `combine` step were O(1), an
+ever-growing-accumulator fold over `M` pieces costs O(M²) — and the
+original `expansion_sum` was itself O(n×m) per call (repeated
+single-element injection), compounding the problem further. `incircle`
+(degree 4) and below didn't show this because their expansions stayed
+short enough for the constants to not matter; `insphere`'s degree-5
+nesting (multiple levels of `product_of_expansions` calling
+`scale_expansion` calling `expansion_sum`) compounds expansion length
+multiplicatively across levels, reaching thousands of components and
+making the quadratic cost dominate.
+
+Fixed in two parts, both now load-bearing:
+
+1. `expansion_sum(base, addend)` is now O(base.len()+addend.len()):
+   merge the two (already magnitude-sorted) expansions by magnitude,
+   then a single cascading `two_sum` pass (Shewchuk's actual "linear-time
+   expansion sum" — not a novel technique, just not what the first
+   implementation used).
+2. `scale_expansion`/`product_of_expansions` now combine their
+   per-component pieces via `merge_all`, a **balanced binary-tree
+   merge**, instead of a linear fold. This is necessary *in addition to*
+   (1): a linear-time merge per step still costs O(M²) total if called M
+   times against an ever-growing accumulator; halving the piece count at
+   each tree level gives O(total_size × log(M)) instead.
+
+Verified: the same degenerate `insphere` calls that took 16s each now
+complete in under 30ms combined; the full differential/adversarial/
+regression suite (100+ tests across all four predicates, many with
+hundreds of random iterations) runs in a few seconds. `fast_two_sum` and
+`grow_expansion` (superseded by `expansion_sum(e, &[b])` for
+single-element injection) were removed as now-unused code rather than
+kept "just in case" — see `tasks/lessons.md`.
+
 ## Known limitation: incircle/insphere have a narrower safe magnitude range
 
 `incircle`'s determinant is **degree 4** in the coordinate differences
@@ -164,9 +234,20 @@ generous margin inside the derived ceiling/floor); it does still
 guarantee the universal API contract (no panic, no NaN/Infinity from
 finite input) — see `tests/adversarial/incircle.rs`'s
 `near_subnormal_scale_does_not_panic` / `extreme_large_scale_does_not_panic`.
-`insphere` (degree 5) will need its own, likely still narrower, derivation
-when implemented. As with the two-`f64`-product floor, no real-world
-coordinate system operates anywhere near this boundary.
+
+`insphere` is **degree 5** (one column squared, three linear, cofactor
+expansion multiplies a degree-1 row factor by a degree-1×degree-2
+sub-cofactor): `M^5 < f64::MAX` ⟹ `M < ~4.6e61` for the ceiling; the
+floor compounds even further through one more nesting level than
+`incircle`. Kika does not claim exact-fallback correctness for `insphere`
+inputs outside roughly `[1e-30, 1e30]` (verified empirically via
+`tests/adversarial/insphere.rs`'s non-panic checks and
+`tests/differential/insphere.rs`'s test generators, not tightly derived —
+narrower than `incircle`'s range as expected, with a large safety margin
+below the theoretical `~4.6e61` ceiling since the floor side of a
+degree-5 chain is harder to bound tightly by hand). As with the
+two-`f64`-product floor, no real-world coordinate system operates
+anywhere near either boundary.
 
 ## Known limitation (fixed): exactness starts at the original coordinates
 

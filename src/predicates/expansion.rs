@@ -25,17 +25,6 @@ pub(crate) fn two_sum(a: f64, b: f64) -> (f64, f64) {
     (hi, lo)
 }
 
-/// Exact sum with the same postcondition as [`two_sum`], but requires
-/// `|a| >= |b|`. Cheaper (3 flops vs. 6).
-#[inline]
-pub(crate) fn fast_two_sum(a: f64, b: f64) -> (f64, f64) {
-    debug_assert!(a.abs() >= b.abs() || a == 0.0 || b == 0.0);
-    let hi = a + b;
-    let b_virtual = hi - a;
-    let lo = b - b_virtual;
-    (hi, lo)
-}
-
 /// Splits `a` into two `f64` halves `(hi, lo)` with `hi + lo == a` exactly.
 #[inline]
 fn split(a: f64) -> (f64, f64) {
@@ -61,25 +50,6 @@ pub(crate) fn two_product(a: f64, b: f64) -> (f64, f64) {
     (hi, lo)
 }
 
-/// Adds a single `f64` `b` to a nonoverlapping expansion `e` (components
-/// sorted by increasing magnitude), returning a new nonoverlapping
-/// expansion of length `e.len() + 1` with the same exact sum.
-///
-/// Zero components are kept rather than elided, so the output length is
-/// always exactly `e.len() + 1`; [`expansion_sign`] already skips zeros
-/// when reading the result.
-pub(crate) fn grow_expansion(e: &[f64], b: f64) -> Vec<f64> {
-    let mut result = Vec::with_capacity(e.len() + 1);
-    let mut q = b;
-    for &e_i in e {
-        let (sum, err) = two_sum(q, e_i);
-        result.push(err);
-        q = sum;
-    }
-    result.push(q);
-    result
-}
-
 /// The two-component nonoverlapping expansion for the exact value `a * b`.
 pub(crate) fn product_expansion(a: f64, b: f64) -> [f64; 2] {
     let (hi, lo) = two_product(a, b);
@@ -95,58 +65,108 @@ pub(crate) fn diff_expansion(a: f64, b: f64) -> [f64; 2] {
     [lo, hi]
 }
 
-/// Merges `addend`'s components into `base` (both nonoverlapping
-/// expansions), returning a nonoverlapping expansion of length
-/// `base.len() + addend.len()` with the sum of both.
+/// Merges `base` and `addend` (both nonoverlapping expansions) into a
+/// nonoverlapping expansion of length `base.len() + addend.len()` with
+/// the sum of both, in O(base.len() + addend.len()) time: a standard
+/// merge-by-magnitude of the two (already magnitude-sorted) inputs,
+/// followed by a single cascading [`two_sum`] pass over the merged
+/// sequence (Shewchuk's "linear-time expansion sum"). Two_sum's
+/// correctness doesn't depend on processing order (§ `two_sum`'s own
+/// doc), but the *nonoverlapping* postcondition — needed for
+/// [`expansion_sign`]'s leading-term shortcut — does, which is why the
+/// merge step (not just the cascade) matters.
 ///
-/// This is the straightforward O(n*m) repeated-[`grow_expansion`] merge,
-/// not Shewchuk's linear-time `fast-expansion-sum`.
-///
-/// ponytail: O(n*m) merge; the small, fixed-size expansions Phase 1's
-/// determinants produce (at most a handful of components) make this
-/// irrelevant in practice. Upgrade to a linear-time merge if profiling
-/// ever shows expansion growth dominates (§13).
+/// An earlier version injected `addend` one component at a time (via
+/// single-element cascading `two_sum`, each call linear in the growing
+/// accumulator), which is effectively quadratic — and calling *this*
+/// function repeatedly in a loop (as [`scale_expansion`]/
+/// [`product_of_expansions`] must, to combine one small piece per input
+/// component) compounds an O(n+m)-per-call cost into O(total²) overall
+/// if each call's `base` is the ever-growing accumulator. That
+/// combination pattern — not just this function's own complexity — is
+/// what made `insphere`'s exact fallback take whole seconds per call
+/// before the fix; see those two functions' docs for the other half of
+/// the fix (balanced merging instead of a linear fold).
 pub(crate) fn expansion_sum(base: &[f64], addend: &[f64]) -> Vec<f64> {
-    let mut result = base.to_vec();
-    for &b in addend {
-        result = grow_expansion(&result, b);
+    if base.is_empty() {
+        return addend.to_vec();
     }
+    if addend.is_empty() {
+        return base.to_vec();
+    }
+
+    let mut merged = Vec::with_capacity(base.len() + addend.len());
+    let (mut i, mut j) = (0, 0);
+    while i < base.len() && j < addend.len() {
+        if base[i].abs() <= addend[j].abs() {
+            merged.push(base[i]);
+            i += 1;
+        } else {
+            merged.push(addend[j]);
+            j += 1;
+        }
+    }
+    merged.extend_from_slice(&base[i..]);
+    merged.extend_from_slice(&addend[j..]);
+
+    let mut result = Vec::with_capacity(merged.len());
+    let mut q = merged[0];
+    for &g in &merged[1..] {
+        let (sum, err) = two_sum(q, g);
+        result.push(err);
+        q = sum;
+    }
+    result.push(q);
     result
+}
+
+/// Merges a list of nonoverlapping expansions (e.g. the per-component
+/// pieces [`scale_expansion`]/[`product_of_expansions`] produce) into
+/// one, combining pairwise in balanced binary-tree order rather than
+/// left-to-right. Folding left-to-right into a single growing
+/// accumulator costs O(count²) even with a linear-time [`expansion_sum`]
+/// per step, because each step's cost is proportional to the
+/// accumulator's *current* (ever-growing) size; halving the number of
+/// pieces at each tree level instead gives O(total_size * log(count)).
+fn merge_all(mut parts: Vec<Vec<f64>>) -> Vec<f64> {
+    if parts.is_empty() {
+        return vec![];
+    }
+    while parts.len() > 1 {
+        let mut next = Vec::with_capacity(parts.len().div_ceil(2));
+        let mut it = parts.into_iter();
+        while let Some(a) = it.next() {
+            match it.next() {
+                Some(b) => next.push(expansion_sum(&a, &b)),
+                None => next.push(a),
+            }
+        }
+        parts = next;
+    }
+    parts.into_iter().next().unwrap_or_default()
 }
 
 /// The exact expansion for `e * s` (a nonoverlapping expansion times a
 /// single `f64` scalar): distributes the multiplication over each
-/// component of `e` via [`product_expansion`], then merges the results
-/// with [`expansion_sum`].
-///
-/// ponytail: same O(n*m) tradeoff as [`expansion_sum`] (not Shewchuk's
-/// linear-time interleaved `scale-expansion`); fine for Phase 1's small,
-/// fixed-size determinant expansions. Upgrade together if profiling ever
-/// shows it matters (§13).
+/// component of `e` via [`product_expansion`], then combines the results
+/// with [`merge_all`] (balanced, not a linear fold — see its docs).
 pub(crate) fn scale_expansion(e: &[f64], s: f64) -> Vec<f64> {
-    let mut result: Vec<f64> = vec![];
-    for &e_i in e {
-        result = expansion_sum(&result, &product_expansion(e_i, s));
-    }
-    result
+    merge_all(
+        e.iter()
+            .map(|&e_i| product_expansion(e_i, s).to_vec())
+            .collect(),
+    )
 }
 
 /// The exact expansion for `e * f` (two nonoverlapping expansions
 /// multiplied together): distributes over each component of `f` via
-/// [`scale_expansion`], then merges. Needed wherever a predicate's exact
-/// fallback must multiply two *derived* quantities (e.g. two coordinate
-/// differences) rather than a raw input scalar — see
-/// `docs/numerical-model.md` "Known limitation: exactness starts at the
-/// original coordinates" for why this matters.
-///
-/// ponytail: same O(n*m) tradeoff as [`expansion_sum`]/[`scale_expansion`];
-/// fine for Phase 1's small, fixed-size determinant expansions.
+/// [`scale_expansion`], then combines with [`merge_all`]. Needed wherever
+/// a predicate's exact fallback must multiply two *derived* quantities
+/// (e.g. two coordinate differences) rather than a raw input scalar —
+/// see `docs/numerical-model.md` "Known limitation: exactness starts at
+/// the original coordinates" for why this matters.
 pub(crate) fn product_of_expansions(e: &[f64], f: &[f64]) -> Vec<f64> {
-    let mut result: Vec<f64> = vec![];
-    for &f_i in f {
-        result = expansion_sum(&result, &scale_expansion(e, f_i));
-    }
-    result
+    merge_all(f.iter().map(|&f_i| scale_expansion(e, f_i)).collect())
 }
 
 /// The exact sign of a nonoverlapping expansion: the sign of its most
@@ -197,9 +217,9 @@ mod tests {
         e.iter().fold(BigRational::zero(), |acc, &v| acc + exact(v))
     }
 
-    /// Broad-range values for [`two_sum`]/[`fast_two_sum`], which are
-    /// proven exact for *any* finite operands (no exponent-range
-    /// restriction — unlike split-based [`two_product`], see below).
+    /// Broad-range values for [`two_sum`], proven exact for *any* finite
+    /// operands (no exponent-range restriction — unlike split-based
+    /// [`two_product`], see below).
     fn sample_values() -> Vec<f64> {
         vec![
             0.0,
@@ -276,21 +296,6 @@ mod tests {
     }
 
     #[test]
-    fn fast_two_sum_is_exact_when_ordered() {
-        let values = sample_values();
-        for &a in &values {
-            for &b in &values {
-                if a == 0.0 || b == 0.0 || a.abs() >= b.abs() {
-                    let (hi, lo) = fast_two_sum(a, b);
-                    let got = exact(hi) + exact(lo);
-                    let want = exact(a) + exact(b);
-                    assert_eq!(got, want, "fast_two_sum({a}, {b}) exactness");
-                }
-            }
-        }
-    }
-
-    #[test]
     fn two_product_is_exact() {
         let values = two_product_safe_values();
         for &a in &values {
@@ -340,11 +345,11 @@ mod tests {
     }
 
     #[test]
-    fn grow_expansion_preserves_sum() {
+    fn expansion_sum_single_element_injection_preserves_sum() {
         let values = sample_values();
         let mut e: Vec<f64> = vec![];
         for (i, &b) in values.iter().enumerate() {
-            e = grow_expansion(&e, b);
+            e = expansion_sum(&e, &[b]);
             assert_eq!(e.len(), i + 1);
         }
         let expected: BigRational = values

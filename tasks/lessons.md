@@ -42,3 +42,45 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   fallback), which pointed straight at the filter. See
   `docs/numerical-model.md` "Known limitation (fixed): filter bound must
   use pre-cancellation magnitudes".
+- Not a bug, a test-authoring trap: an `insphere` adversarial test used
+  `1.0 / 2.0_f64.sqrt()`-based coordinates intended to be exactly
+  cospherical, and got `Positive` instead of the expected `Zero`.
+  Verified against the exact-rational oracle that `Positive` was
+  correct: `sqrt()` is irrational, so its `f64` rounding means the
+  constructed points are only cospherical to ~1e-15 relative precision,
+  not exactly — and the whole point of an exact predicate is to notice
+  that. Any test asserting an *exact* degeneracy (collinear, coplanar,
+  cospherical, cocircular) needs exactly-representable (integer/rational)
+  coordinates, never `sqrt`/`sin`/`cos`-derived ones.
+- Performance bug, found implementing `insphere`: exact fallback took
+  16s/call on degenerate inputs. Root cause was combining N small
+  expansion pieces via a left-to-right fold into one growing accumulator
+  — O(N²) regardless of how fast each individual merge step is, since
+  each step's cost scales with the accumulator's current size. Fixing
+  `expansion_sum` itself to be O(n+m) (merge-by-magnitude + single
+  `two_sum` cascade, instead of repeated single-element injection) was
+  necessary but not sufficient; `scale_expansion`/`product_of_expansions`
+  also needed to switch from a linear fold to a balanced binary-tree
+  merge. `incircle` (degree 4) never showed this because its expansions
+  stayed short enough for the constant factor to not matter — `insphere`
+  (degree 5, one more nesting level) crossed the threshold where it does.
+  The two ~10-line, well-tested "obviously fine" primitives (`fast_two_sum`,
+  `grow_expansion`) became fully unused once `expansion_sum` no longer
+  needed single-element injection, and were deleted rather than kept
+  "just in case" — see `docs/numerical-model.md` "Known limitation
+  (fixed): naive expansion merging is quadratic".
+- Documentation bug caught by verifying before writing, not after: while
+  writing `docs/degeneracy-policy.md` for `insphere`, assumed by analogy
+  with `incircle` ("collinear a,b,c ⟹ zero for d off-line is false, but
+  d-on-line ⟹ zero") that "coplanar a,b,c,d ⟹ zero for e off-plane" would
+  be the corresponding false claim and "e on-plane ⟹ zero" the true one.
+  Checked numerically before committing the doc: a square's corners
+  (coplanar *and* concyclic) do give zero for any `e`, but a generic
+  (non-concyclic) coplanar quadrilateral gives a *nonzero* determinant
+  even for `e` exactly on the plane. The real degenerate condition is
+  coplanar-and-concyclic-within-the-plane, not mere coplanarity — the
+  existing `insphere` unit test (`coplanar_abcd_is_zero`, using a square)
+  was accidentally passing for the wrong reason. Lesson: an analogy
+  between two predicates' degenerate cases is a hypothesis, not a fact —
+  check it the same way as any other numerical claim before writing it
+  into docs or tests, even when it "obviously" generalizes.

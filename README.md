@@ -61,8 +61,17 @@ in pure Rust, that's what Phase 1 of Kika is.
   `orient3d` due to its higher polynomial degree — see
   [`docs/numerical-model.md`](docs/numerical-model.md). Checked against an
   independent exact-rational oracle in `tests/differential/`.
-* `insphere` — not implemented yet (in progress). See
-  [Roadmap](#roadmap).
+* `insphere` — exact-sign point-in-circumsphere predicate, the 3D analog
+  of `incircle`. Same filter + exact-fallback design, with an even
+  narrower verified-safe coordinate-magnitude range (`~1e-30`..`~1e30`)
+  than `incircle` — see [`docs/numerical-model.md`](docs/numerical-model.md).
+  Checked against an independent exact-rational oracle in
+  `tests/differential/`.
+
+All four predicates complete v0.1's robust-predicate scope. Everything
+past this point (primitives beyond `Point2`/`Point3`, intersections,
+hull, triangulation, exact constructions) is Phase 2 and later — see
+[Roadmap](#roadmap).
 
 ## Exact predicates vs. exact constructions
 
@@ -123,9 +132,9 @@ at your option.
 
 ## Roadmap
 
-Not yet implemented: `insphere`; 2D primitives
-beyond `Point2`/`Point3` (vectors, segments, triangles, AABBs); segment
-intersection; polygon validity/orientation; convex hull; Delaunay
-triangulation; exact constructions; constrained Delaunay; polygon/mesh
-Boolean; mesh repair; surface reconstruction; point-cloud processing. See
+Not yet implemented: 2D primitives beyond `Point2`/`Point3` (vectors,
+segments, triangles, AABBs); segment intersection; polygon
+validity/orientation; convex hull; Delaunay triangulation; exact
+constructions; constrained Delaunay; polygon/mesh Boolean; mesh repair;
+surface reconstruction; point-cloud processing. See
 [`tasks/todo.md`](tasks/todo.md) for the phased backlog.

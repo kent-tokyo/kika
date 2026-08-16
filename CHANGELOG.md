@@ -8,38 +8,46 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 
 - Repository skeleton, dual `MIT OR Apache-2.0` license, ADR-001..005.
-- Exact expansion arithmetic core (`two_sum`, `fast_two_sum`, `split`,
-  `two_product`, `grow_expansion`, `expansion_sum`, `expansion_sign`),
-  verified against a `num-rational` dev-dependency oracle.
+- Exact expansion arithmetic core (`predicates::expansion`, internal):
+  `two_sum`, `split`, `two_product`, `product_expansion`,
+  `diff_expansion`, `expansion_sum`, `scale_expansion`,
+  `product_of_expansions`, `expansion_sign` — verified against a
+  `num-rational` dev-dependency oracle, never used from production code
+  (ADR-005).
 - `Point2`, `Point3` finite-coordinate types; `Sign`, `Orientation` result
   enums; `KikaError`.
-- `orient2d`: floating-point filter with a computed error bound, falling
-  back to exact expansion arithmetic. Checked against an independent
-  exact-rational oracle in `tests/differential/orient2d.rs`.
-- `scale_expansion` (expansion × scalar) exact-arithmetic primitive.
-- `orient3d`: same filter + exact-fallback design as `orient2d`. Checked
-  against an independent exact-rational oracle in
-  `tests/differential/orient3d.rs`.
-- `diff_expansion`, `product_of_expansions` exact-arithmetic primitives.
-- `incircle`: same filter + exact-fallback design, extended to the
-  "lift to the paraboloid" determinant. Narrower verified-safe coordinate
-  magnitude range than `orient2d`/`orient3d` (degree-4 determinant); see
-  `docs/numerical-model.md`. Checked against an independent exact-rational
-  oracle in `tests/differential/incircle.rs`.
+- `orient2d`, `orient3d`, `incircle`, `insphere`: exact-sign geometric
+  predicates. Each uses a floating-point filter with a *computed* error
+  bound (never a fixed epsilon), falling back to exact expansion
+  arithmetic — built from the original coordinates, not a once-rounded
+  intermediate — when the filter is inconclusive. `incircle`/`insphere`
+  have narrower verified-safe coordinate-magnitude ranges than
+  `orient2d`/`orient3d` (higher polynomial degree from the paraboloid
+  lift); see `docs/numerical-model.md`. Each checked against an
+  independent exact-rational oracle in `tests/differential/`.
 
 ### Fixed
 
-- `orient2d`/`orient3d` exact fallback now builds coordinate differences
-  as exact expansions from the original `Point2`/`Point3` coordinates
-  (`diff_expansion`, `product_of_expansions`) instead of reusing the
-  filter's once-rounded `f64` subtraction. The old behavior was only
-  exact relative to that rounding, not the true input coordinates, and
-  could return the wrong sign for calls mixing widely different
-  coordinate magnitudes (e.g. `2^60` alongside small integers); see
-  `tests/regression/orient2d.rs` and `docs/numerical-model.md`.
-- `orient3d`/`incircle` floating-point filters now bound their error
-  using each cofactor's pre-subtraction magnitudes instead of the
-  post-subtraction term magnitude, which could silently underestimate the
-  true error when an inner cofactor subtraction cancelled catastrophically
-  (found via `incircle`'s differential tests); see
-  `tests/regression/incircle.rs` and `docs/numerical-model.md`.
+*(bugs found and fixed during this same initial implementation, before
+any release — noted for the record per AGENTS.md §18/§20, not because
+anything public regressed)*
+
+- `orient2d`/`orient3d` exact fallback used to reuse the filter's
+  once-rounded coordinate difference (e.g. `a.x()-c.x()` as a plain `f64`
+  subtraction) instead of recomputing it exactly from the original
+  coordinates. Could return the wrong sign for calls mixing widely
+  different coordinate magnitudes (e.g. `2^60` alongside small integers);
+  see `tests/regression/orient2d.rs` and `docs/numerical-model.md`.
+- `orient3d`/`incircle` floating-point filters used to bound their error
+  using each cofactor's post-subtraction term magnitude instead of the
+  pre-subtraction magnitudes, which could silently underestimate the true
+  error when an inner cofactor subtraction cancelled catastrophically;
+  see `tests/regression/incircle.rs` and `docs/numerical-model.md`.
+- Expansion combination (`expansion_sum`/`scale_expansion`/
+  `product_of_expansions`) used to fold pieces left-to-right into a
+  single growing accumulator, which is O(count²) regardless of how fast
+  each individual merge step is. Made `insphere`'s exact fallback take
+  16s/call on degenerate inputs. Fixed with a linear-time `expansion_sum`
+  (merge-by-magnitude + single `two_sum` cascade) plus balanced
+  binary-tree combination instead of a linear fold; see
+  `docs/numerical-model.md`.
