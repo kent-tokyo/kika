@@ -51,6 +51,15 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   Phase 5 territory). Checked against an independent exact-rational
   reimplementation of the whole decision tree (not just the underlying
   `orient2d` calls) in `tests/differential/`.
+- `Polygon2`: implicitly-closed vertex ring. `signed_area()` (plain
+  `f64`) and `orientation()` (exact — sums every edge's shoelace term via
+  the same exact-expansion machinery `orient2d` etc. use, not a running
+  `f64` sum) kept separate per §4.2. `basic_validity()` (vertex count,
+  consecutive-duplicate vertices, zero area) and the separate, O(n²)
+  `find_self_intersection()` (correctly excludes adjacent edges' shared
+  vertex from being reported as a self-intersection).
+
+  This completes Phase 2 (2D Primitives and Intersections).
 
 ### Fixed
 

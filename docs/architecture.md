@@ -1,6 +1,6 @@
 # Architecture
 
-Status: reflects Phase 1 + Phase 2 (in progress). Updated per-phase, not
+Status: reflects Phase 1 + Phase 2 (complete). Updated per-phase, not
 written ahead of the code it describes.
 
 ## Crate layout
@@ -23,14 +23,17 @@ src/
 │   ├── orient3d.rs
 │   ├── incircle.rs
 │   └── insphere.rs
-└── intersections/
-    └── segment2.rs         # segment_intersection_kind (predicate) /
-                             # segment_intersection (construction), split per §4.2
+├── intersections/
+│   └── segment2.rs         # segment_intersection_kind (predicate) /
+│                            # segment_intersection (construction), split per §4.2
+└── polygon/
+    └── polygon2.rs          # Polygon2: signed_area (f64), orientation (exact),
+                              # basic_validity, find_self_intersection
 ```
 
-`predicates/constructions/`, `polygon/`, `hull/`, `triangulation/`,
-`topology/` are empty placeholders reserved by §6's tree until the phase
-that fills them (Phase 2 (polygon/) onward).
+`predicates/constructions/`, `hull/`, `triangulation/`, `topology/` are
+empty placeholders reserved by §6's tree until the phase that fills them
+(Phase 3 onward).
 
 ## Layering (§4.2)
 
@@ -60,8 +63,17 @@ that fills them (Phase 2 (polygon/) onward).
    non-exact, Phase 5 territory — every other construction case reuses an
    original input coordinate exactly, since it corresponds to an actual
    shared point).
-5. **Polygon, hull, triangulation, topology algorithms** do not exist yet
-   (Phase 2's polygon type onward).
+5. **Polygon** (`polygon::Polygon2`) — the same layering *within* one
+   type: `signed_area()` is a plain `f64` construction (a number, not a
+   sign — no exactness claim, matches `segment_intersection`'s `Proper`
+   case); `orientation()` is a genuine exact predicate, reusing the same
+   `expansion`/`merge_all` machinery as layer 1/2 to sum every edge's
+   shoelace term exactly rather than trust a running `f64` sum (which
+   could round through cancellation for a near-degenerate polygon).
+   `basic_validity()`/`find_self_intersection()` compose layers 2–4, same
+   as layer 3.
+6. **Hull, triangulation, topology algorithms** do not exist yet (Phase 3
+   onward).
 
 ## Data flow for a predicate call
 

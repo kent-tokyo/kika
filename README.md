@@ -10,7 +10,8 @@ robust 2D/3D computational geometry: exact predicates with adaptive/exact
 fallback arithmetic, and — in later phases — triangulation, hull, and
 polygon algorithms built on top of that foundation.
 
-Status: **pre-alpha (Phase 1 in progress).** No stability guarantees. See
+Status: **pre-alpha (Phase 1 + 2 complete, Phase 3 not started).** No
+stability guarantees. See
 [Roadmap](#roadmap) for what does not exist yet — **Kika is not a CGAL
 replacement yet**, it is the robust kernel a future one would be built on.
 
@@ -71,6 +72,15 @@ in pure Rust, that's what Phase 1 of Kika is.
   see [Exact predicates vs. exact constructions](#exact-predicates-vs-exact-constructions).
   Checked against an independent exact-rational oracle in
   `tests/differential/`.
+* `Polygon2` — a vertex ring, implicitly closed (no repeated first/last
+  vertex). `signed_area()` (plain `f64`, a construction) and
+  `orientation()` (exact — sums every edge's shoelace term via the same
+  exact-expansion machinery the core predicates use, not a running `f64`
+  sum) are kept separate on purpose, same split as everywhere else.
+  `basic_validity()` covers the cheap structural checks (vertex count,
+  consecutive-duplicate vertices, zero area); `find_self_intersection()`
+  is the separate, O(n²) check across non-adjacent edges (adjacent edges'
+  shared vertex is correctly never reported as a self-intersection).
 * `Sign`, `Orientation` — meaningful enums returned by predicates (never a
   raw determinant, never an ambiguous `bool`).
 * `orient2d` — exact-sign 2D orientation predicate. Uses a fast
@@ -165,9 +175,9 @@ at your option.
 
 ## Roadmap
 
-Not yet implemented: polygon type, area, validity, self-intersection
-detection; convex hull; Delaunay triangulation; certified/exact
-constructions (Phase 5, including an exact `Proper` segment-intersection
-point); constrained Delaunay; polygon/mesh Boolean; mesh repair; surface
-reconstruction; point-cloud processing. See
+Phase 1 (robust predicates) and Phase 2 (2D primitives and intersections)
+are complete. Not yet implemented: convex hull; Delaunay triangulation;
+certified/exact constructions (Phase 5, including an exact `Proper`
+segment-intersection point); constrained Delaunay; polygon/mesh Boolean;
+mesh repair; surface reconstruction; point-cloud processing. See
 [`tasks/todo.md`](tasks/todo.md) for the phased backlog.

@@ -362,6 +362,24 @@ error, and — in astronomically extreme, near-parallel-line inputs — is
 not even guaranteed finite (see `proper_intersection_point`'s doc
 comment in `src/intersections/segment2.rs`).
 
+`Polygon2::orientation()` is the exception among Phase 2's query methods
+in the other direction: it's not just composing existing exact
+predicates, it independently reuses the exact-arithmetic core directly
+(`predicates::expansion`'s `product_expansion`/`expansion_sum`/
+`merge_all`/`expansion_sign`) to sum every edge's shoelace term
+(`x_i*y_j - x_j*y_i`) into one exact expansion before taking its sign —
+a running `f64` sum here could round through cancellation for a
+near-degenerate polygon (many vertices, small net area) the same way a
+naive predicate could. Unlike `orient2d`/`orient3d`/`incircle`/
+`insphere`, it has no fast floating-point filter ahead of the exact path
+— a deliberate, documented simplification (`predicates::polygon2`'s doc
+comment), not the O(count²) naive-merge mistake from the "naive expansion
+merging" section above: the summation itself is already the O(n log n)
+balanced `merge_all`, just always exact rather than filter-then-exact.
+`Polygon2::signed_area()` is the plain, non-exact numeric counterpart
+(the actual `f64` area value, not just its sign) — same
+predicate/construction split as everywhere else in Phase 2.
+
 ## What is *not* claimed
 
 This is a two-stage (filter + exact) model, not Shewchuk's three-stage

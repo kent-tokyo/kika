@@ -128,7 +128,7 @@ pub(crate) fn expansion_sum(base: &[f64], addend: &[f64]) -> Vec<f64> {
 /// per step, because each step's cost is proportional to the
 /// accumulator's *current* (ever-growing) size; halving the number of
 /// pieces at each tree level instead gives O(total_size * log(count)).
-fn merge_all(mut parts: Vec<Vec<f64>>) -> Vec<f64> {
+pub(crate) fn merge_all(mut parts: Vec<Vec<f64>>) -> Vec<f64> {
     if parts.is_empty() {
         return vec![];
     }
