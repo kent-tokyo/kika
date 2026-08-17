@@ -112,6 +112,15 @@ topological consistency of the resulting arrangement. This section records
 a finding, not a new decision — no representation is chosen here; see
 "What remains open" below.
 
+**Confirmed by implementation.** Phase 6C's `constrained_delaunay2`
+(`src/triangulation/cdt.rs`) validates the prediction below: segment
+recovery and Delaunay restoration are both done purely by flipping
+existing triangulation edges via `orient2d`/`incircle`/
+`segment_intersection_kind` (classification only), and the module never
+calls `line_intersection`, `correctly_rounded_divide`, or constructs any
+new `Point2`. Not a single line of this ADR's construction model was
+touched.
+
 **Most load-bearing finding: Phase 6a (constrained Delaunay) needs no new
 construction at all.** A constrained Delaunay triangulation exists for any
 PSLG (planar straight-line graph) using only the *input* vertices — segment

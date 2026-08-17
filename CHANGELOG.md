@@ -7,6 +7,24 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- Constrained Delaunay triangulation (Phase 6C): `constrained_delaunay2`,
+  `ConstrainedTriangulation2`, `CdtError`. Deliberately narrow scope: only
+  non-crossing constraint edges between existing input vertices (crossing
+  or collinear-overlapping constraints are a typed error, checked
+  exhaustively up front); no automatic intersection/Steiner-point
+  generation, refinement, or quality meshing. Implemented entirely by
+  flipping existing Delaunay edges (segment recovery, then bounded
+  restoration of local Delaunay-ness on unconstrained edges) — ADR-004's
+  Phase 6 re-evaluation predicted CDT needs no new construction at all,
+  and the implementation confirms it, touching no construction primitive.
+  Both flip passes are bounded (`4 * face_count + 16`, the same
+  measured-not-assumed discipline as Phase 5's `correctly_rounded_divide`
+  loop bound — measured worst case across a spread of random test
+  configurations: 9 insertion flips / 3 restore flips, well under the
+  ~72 bound) rather than looping to convergence with no ceiling; hitting
+  it is `CdtError::ConstraintInsertionFailed`, never a hang or a silently
+  wrong result. No panics anywhere in the public API.
+
 - Release-quality polish pass (Phase 6A): `#![forbid(unsafe_code)]` and
   `#![warn(missing_docs)]` at the crate root (every public item now
   documented, enforced going forward by CI's existing `-D warnings`);

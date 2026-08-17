@@ -138,17 +138,28 @@ in pure Rust, that's what Phase 1 of Kika is.
   and `vertices`/`edges`/`faces`/`edge_vertices`/`adjacent_faces`/
   `face_vertices`/`neighboring_faces`/`boundary_edges`, a **static,
   post-construction snapshot** of the indexed-triangle-adjacency structure
-  (no half-edge/quad-edge generality, per ADR-006's comparison — `flip`
-  and constraint marking are deferred to Phase 6C, which will shape their
-  real signatures). `triangles()` keeps its original coordinate-only
-  contract unchanged; the new methods are purely additive.
+  (no half-edge/quad-edge generality, per ADR-006's comparison).
+  `triangles()` keeps its original coordinate-only contract unchanged; the
+  new methods are purely additive.
+* `constrained_delaunay2` / `ConstrainedTriangulation2` — 2D constrained
+  Delaunay triangulation, deliberately narrow scope (Phase 6C): only
+  non-crossing constraint edges between *existing* input vertices, no
+  automatic intersection/Steiner-point generation, no refinement. Built
+  entirely by flipping existing Delaunay edges via the crate's own
+  `orient2d`/`incircle`/`segment_intersection_kind` predicates — ADR-004's
+  Phase 6 re-evaluation predicted CDT needs **no new construction**, and
+  the implementation confirms it: not one new coordinate is ever built.
+  Constraint recovery and Delaunay restoration are each bounded (never an
+  unbounded loop); `CdtError` reports crossing/collinear constraints and
+  algorithm exhaustion as typed errors, never a panic.
 
 All four predicates complete v0.1's robust-predicate scope; the primitives,
 intersections, polygon, convex hull, and Delaunay triangulation above
 complete Phases 2 through 4. `segment_intersection`'s `Proper`-crossing
-point construction (below) completes Phase 5. Everything past this point
-(constrained Delaunay, polygon Boolean) is Phase 6 and later — see
-[Roadmap](#roadmap).
+point construction (below) completes Phase 5, and the adjacency structure
+plus constrained Delaunay triangulation above complete Phase 6A-6C.
+Everything past this point (simple-polygon triangulation, polygon Boolean)
+is Phase 6D and later — see [Roadmap](#roadmap).
 
 * `predicates::line_intersection` (used internally by
   `segment_intersection`'s `Proper` case) — the first exact/certified
@@ -237,7 +248,8 @@ being finalized yet — see ADR-004.
 | Convex hull | Implemented — fully exact |
 | Delaunay triangulation | Implemented — fully exact, no synthetic coordinates |
 | Triangulation adjacency (vertex/edge/face queries) | Implemented — `VertexId`/`EdgeId`/`FaceId`, neighbor/boundary queries, internal topology validator (ADR-006) |
-| Constrained Delaunay | Planned — not implemented |
+| Constrained Delaunay | Implemented — narrow scope: non-crossing constraints between existing vertices only, no Steiner points (Phase 6C) |
+| Simple polygon triangulation | Planned — not implemented (Phase 6D) |
 | Polygon Boolean | Not implemented — exactness model still open, see ADR-004 |
 | 3D mesh operations | Not implemented |
 

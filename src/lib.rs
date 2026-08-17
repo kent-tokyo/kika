@@ -24,4 +24,7 @@ pub use primitives::{
     Aabb2, Aabb3, Point2, Point3, PointSegmentRelation, PointTriangleRelation, Segment2, Triangle2,
     Triangle3, Vector2, Vector3,
 };
-pub use triangulation::{EdgeId, FaceId, Triangulation2, VertexId, delaunay2};
+pub use triangulation::{
+    CdtError, ConstrainedTriangulation2, EdgeId, FaceId, Triangulation2, VertexId,
+    constrained_delaunay2, delaunay2, validate_cdt_topology,
+};

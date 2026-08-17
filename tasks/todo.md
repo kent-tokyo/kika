@@ -1,6 +1,6 @@
 # Todo
 
-## Done (Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5)
+## Done (Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6A + Phase 6B + Phase 6C)
 
 - [x] Phase 0: name-collision check, ecosystem survey, ADR-001..005
 - [x] Expansion arithmetic core (`two_sum`, `split`, `two_product`,
@@ -147,6 +147,29 @@
       `polygon validity` targets from AGENTS.md §12's full list not yet
       added — out of scope for this pass, which targeted the topology/
       algorithm layer specifically.
+- [x] Phase 6C: constrained Delaunay (narrow scope — non-crossing
+      constraints between existing input vertices only; no automatic
+      constraint splitting, Steiner points, refinement, or quality
+      meshing). `constrained_delaunay2`/`ConstrainedTriangulation2`/
+      `CdtError`. Confirms ADR-004's Phase 6 re-evaluation prediction:
+      segment recovery is done entirely by flipping existing Delaunay
+      edges, never building a new coordinate — CDT needed zero new
+      construction machinery. Both flip passes (constraint recovery,
+      unconstrained-Delaunay restoration) are bounded
+      (`4 * face_count + 16`, measured — worst case 9/3 flips across a
+      spread of random test configurations, well under the ~72 bound for
+      those sizes) rather than looping to convergence unbounded, matching
+      Phase 5's `correctly_rounded_divide` discipline. A candidate flip
+      edge is defensively excluded if it's already a realized constraint
+      from an earlier constraint in the same call (belt-and-suspenders:
+      the upfront pairwise non-crossing validation should already make
+      this unreachable, but `crossing_faces` no longer trusts that
+      argument silently) — added after advisor review flagged the gap and
+      a dedicated multi-constraint test
+      (`multiple_constraints_each_needing_a_flip_all_survive`) confirmed
+      the fix. 15 unit tests, including the load-bearing
+      `constrained_edge_survives_even_when_not_locally_delaunay`
+      (proves the exclusion logic actually matters, not vacuously true).
 
 ## Known gaps, not yet closed (see docs/compatibility.md)
 
@@ -163,13 +186,6 @@
       derived on the floor side
 ## Backlog (later phases, not started)
 
-- [ ] Phase 6C: constrained Delaunay (narrow scope — non-crossing
-      constraints between existing input vertices only; no automatic
-      constraint splitting, Steiner points, refinement, or quality
-      meshing). Pre-design done: ADR-006 (triangulation adjacency
-      structure, now implemented as Phase 6B), ADR-004's Phase 6
-      re-evaluation (float+certificate is sufficient — CDT needs no new
-      construction at all). Not started.
 - [ ] Phase 6D: simple-polygon triangulation via Phase 6C's CDT (no holes
       in the initial version). Not started.
 - [ ] Phase 6 (polygon Boolean, overlay): ADR-004's Phase 6 re-evaluation

@@ -259,13 +259,29 @@ fn build_topology(pts: Vec<Point2>, tris: Vec<[usize; 3]>) -> Triangulation2 {
         .filter(|t| t.iter().all(|&idx| !is_ghost(idx)))
         .collect();
 
-    let triangles: Vec<Triangle2> = real
-        .iter()
-        .map(|&[a, b, c]| Triangle2::new(pts[a], pts[b], pts[c]))
-        .collect();
     let faces: Vec<[VertexId; 3]> = real
         .iter()
         .map(|&[a, b, c]| [VertexId(a as u32), VertexId(b as u32), VertexId(c as u32)])
+        .collect();
+
+    assemble_triangulation(pts, faces)
+}
+
+/// Builds the full [`Triangulation2`] (coordinates, adjacency, edge
+/// table) from a vertex list and a ghost-free face list. Shared between
+/// Bowyer-Watson's output (`build_topology` above, after stripping ghost
+/// triangles) and Phase 6C's constrained Delaunay (`super::cdt`, after
+/// its edge-flip passes finish) — both end up needing exactly this same
+/// "derive adjacency from a flat face list" step, and duplicating it would
+/// mean two independent implementations of the same edge/neighbor-table
+/// construction to keep in sync.
+pub(super) fn assemble_triangulation(
+    pts: Vec<Point2>,
+    faces: Vec<[VertexId; 3]>,
+) -> Triangulation2 {
+    let triangles: Vec<Triangle2> = faces
+        .iter()
+        .map(|&[a, b, c]| Triangle2::new(pts[a.0 as usize], pts[b.0 as usize], pts[c.0 as usize]))
         .collect();
 
     // Canonical undirected-edge key: (min, max) by VertexId's own index,
@@ -376,6 +392,20 @@ impl Triangulation2 {
     /// `#[doc(hidden)]` — see [`TopologyError`]'s doc comment for why.
     #[doc(hidden)]
     pub fn validate_topology(&self) -> Vec<TopologyError> {
+        self.validate_topology_excluding(&|_| false)
+    }
+
+    /// Same checks as [`Triangulation2::validate_topology`], but the
+    /// local-Delaunay check skips any edge for which `excluded` returns
+    /// `true` — a constrained edge (Phase 6C) is allowed, expected even,
+    /// to violate local-Delaunay, since it must never be flipped away
+    /// regardless. `validate_topology` itself is exactly this with
+    /// nothing excluded (no constraints ⇒ every edge unconstrained ⇒
+    /// identical coverage to before this method existed).
+    pub(crate) fn validate_topology_excluding(
+        &self,
+        excluded: &dyn Fn(EdgeId) -> bool,
+    ) -> Vec<TopologyError> {
         let mut errors = Vec::new();
 
         for (i, tri) in self.triangles.iter().enumerate() {
@@ -396,6 +426,20 @@ impl Triangulation2 {
                 incidence.entry(key).or_default().push((face_id, k));
             }
         }
+
+        // Maps a canonical vertex-pair key to its EdgeId, so the
+        // caller-supplied `excluded` predicate (which takes an EdgeId) can
+        // be checked here -- built from `self.edges`, independent of the
+        // `incidence` map above.
+        let edge_id_of: HashMap<(u32, u32), EdgeId> = self
+            .edges
+            .iter()
+            .enumerate()
+            .map(|(i, &(u, v))| {
+                let key = if u.0 <= v.0 { (u.0, v.0) } else { (v.0, u.0) };
+                (key, EdgeId(i as u32))
+            })
+            .collect();
 
         for (&(u, v), incident) in &incidence {
             if incident.len() != 1 && incident.len() != 2 {
@@ -418,17 +462,20 @@ impl Triangulation2 {
                     });
                 }
 
-                let opposite_b = self.vertices[self.faces[fb.0 as usize][kb].0 as usize];
-                let opposite_a = self.vertices[self.faces[fa.0 as usize][ka].0 as usize];
-                let tri_a = self.triangles[fa.0 as usize];
-                let tri_b = self.triangles[fb.0 as usize];
-                let a_contains_b = incircle(tri_a.a(), tri_a.b(), tri_a.c(), opposite_b);
-                let b_contains_a = incircle(tri_b.a(), tri_b.b(), tri_b.c(), opposite_a);
-                if a_contains_b == Sign::Positive || b_contains_a == Sign::Positive {
-                    errors.push(TopologyError::NotLocallyDelaunay {
-                        u: VertexId(u),
-                        v: VertexId(v),
-                    });
+                let is_excluded = edge_id_of.get(&(u, v)).is_some_and(|&id| excluded(id));
+                if !is_excluded {
+                    let opposite_b = self.vertices[self.faces[fb.0 as usize][kb].0 as usize];
+                    let opposite_a = self.vertices[self.faces[fa.0 as usize][ka].0 as usize];
+                    let tri_a = self.triangles[fa.0 as usize];
+                    let tri_b = self.triangles[fb.0 as usize];
+                    let a_contains_b = incircle(tri_a.a(), tri_a.b(), tri_a.c(), opposite_b);
+                    let b_contains_a = incircle(tri_b.a(), tri_b.b(), tri_b.c(), opposite_a);
+                    if a_contains_b == Sign::Positive || b_contains_a == Sign::Positive {
+                        errors.push(TopologyError::NotLocallyDelaunay {
+                            u: VertexId(u),
+                            v: VertexId(v),
+                        });
+                    }
                 }
             }
         }

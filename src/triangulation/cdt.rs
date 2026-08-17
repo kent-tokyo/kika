@@ -1,0 +1,873 @@
+//! Constrained Delaunay triangulation (Phase 6C), narrow scope per
+//! AGENTS.md's phased plan and this session's explicit direction: only
+//! non-crossing constraint edges between *existing* input vertices.
+//! Deliberately **not** supported (typed errors instead, or simply out of
+//! scope — see each error variant and [`constrained_delaunay2`]'s doc
+//! comment): constraint segments that properly cross each other,
+//! automatic intersection/Steiner-point generation, refinement, quality
+//! meshing, automatic constraint splitting.
+//!
+//! ADR-004's Phase 6 re-evaluation found CDT needs **no new construction**
+//! at all — segment recovery here is done entirely by flipping existing
+//! Delaunay edges (never dividing, never building a new coordinate), so
+//! this module reuses the crate's own [`Segment2`]/[`segment_intersection_kind`]
+//! and [`orient2d`]/[`incircle`] predicates throughout, exactly like
+//! [`super::delaunay2`] does, and touches ADR-004's construction model not
+//! at all.
+
+use std::collections::HashSet;
+
+use super::delaunay2::{TopologyError, assemble_triangulation};
+use super::ids::{EdgeId, FaceId, VertexId};
+use super::{Triangulation2, delaunay2};
+use crate::hull::dedup_sorted;
+use crate::intersections::{SegmentIntersectionKind, segment_intersection_kind};
+use crate::predicates::{Orientation, Sign, incircle, orient2d};
+use crate::primitives::{Point2, Segment2};
+
+/// Why [`constrained_delaunay2`] rejected an input or failed to build a
+/// result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CdtError {
+    /// A constraint referenced an index `>= points.len()`, or `points`
+    /// itself contains a duplicate coordinate — the latter makes
+    /// constraint indices ambiguous (which copy does index `i` mean?), so
+    /// it is rejected the same way as an out-of-range index rather than
+    /// silently deduplicated.
+    InvalidVertexIndex,
+    /// The same unordered vertex pair appears more than once in
+    /// `constraints`.
+    DuplicateConstraint,
+    /// A constraint's two indices are equal.
+    ZeroLengthConstraint,
+    /// Two distinct constraint segments properly cross each other (share
+    /// a single interior point, neither an endpoint of both). Automatic
+    /// intersection generation is out of scope — see the module doc
+    /// comment.
+    ProperlyCrossingConstraints,
+    /// Two distinct constraint segments are collinear and overlap along a
+    /// sub-segment (more than a shared endpoint).
+    CollinearOverlappingConstraints,
+    /// A constraint could not be realized by edge flipping within the
+    /// bounded number of attempts. Covers both a genuine algorithm
+    /// exhaustion (see [`constrained_delaunay2`]'s doc comment on the
+    /// flip bound) and constraints this narrow scope does not claim to
+    /// support (e.g. a constraint segment passing exactly through a third,
+    /// unrelated input vertex — no single triangulation edge can realize
+    /// that, and this scope does not auto-split it into sub-constraints).
+    ConstraintInsertionFailed,
+}
+
+/// A 2D constrained Delaunay triangulation: a [`Triangulation2`] plus a
+/// marked set of edges that are guaranteed present and were never flipped
+/// away, even where doing so would otherwise be locally Delaunay —
+/// see [`constrained_delaunay2`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstrainedTriangulation2 {
+    triangulation: Triangulation2,
+    constrained_edges: HashSet<EdgeId>,
+}
+
+impl ConstrainedTriangulation2 {
+    /// The underlying triangulation — every [`Triangulation2`] query
+    /// method (`vertices`, `edges`, `faces`, `triangles`, adjacency, …)
+    /// is available through it.
+    pub fn triangulation(&self) -> &Triangulation2 {
+        &self.triangulation
+    }
+
+    /// `true` iff `edge` is one of the constraint edges: guaranteed
+    /// present in the triangulation and never flipped, even if that means
+    /// it is not locally Delaunay.
+    pub fn is_constrained(&self, edge: EdgeId) -> bool {
+        self.constrained_edges.contains(&edge)
+    }
+}
+
+/// Builds the constrained Delaunay triangulation of `points` with the
+/// given `constraints` (pairs of indices into `points`), or a typed error
+/// explaining why it couldn't.
+///
+/// # Scope (deliberately narrow — see the module doc comment)
+///
+/// Only constraints between existing, distinct input vertices, and only
+/// when no two constraint segments properly cross or collinearly overlap
+/// each other (checked exhaustively up front, `O(constraints²)` — fine
+/// for this scope's expected input sizes, not optimized for thousands of
+/// constraints). `points` must contain no duplicate coordinates (checked
+/// via the same `dedup_sorted` the unconstrained `delaunay2` already
+/// uses) — a duplicate would make a constraint index ambiguous.
+///
+/// # Algorithm
+///
+/// 1. Validate every precondition above before touching any triangulation
+///    (fail fast, never partially build then discover a problem).
+/// 2. Build the ordinary (unconstrained) Delaunay triangulation of
+///    `points` via [`delaunay2`], then map each input index to its
+///    [`VertexId`] by coordinate — `delaunay2` returns vertices in its own
+///    canonical sorted order, not input order.
+/// 3. For each constraint, if it is not already a triangulation edge,
+///    realize it by repeatedly finding a triangulation edge that properly
+///    crosses the constraint segment (via [`segment_intersection_kind`],
+///    reusing the same exact primitive `segment_intersection` itself
+///    uses) and flipping it — never constructing a new coordinate, only
+///    relabeling existing triangles' vertex triples. This is the standard
+///    diagonal-swap / Sloan-style segment recovery, simplified: instead of
+///    a persistent crossing-edge queue, each iteration rescans for a
+///    currently-crossing, currently-flippable edge, trading a little
+///    efficiency for a much smaller, easier-to-verify implementation —
+///    appropriate for this scope's small expected inputs (AGENTS.md's own
+///    "don't optimize before it's needed" principle).
+/// 4. Once every constraint edge exists, restore local Delaunay-ness on
+///    every **unconstrained** edge by the same bounded flipping — a
+///    constraint edge is never a flip candidate, by construction.
+///
+/// Both flip passes are bounded (`4 * face_count + 16` flips per
+/// constraint, or per full restoration pass) rather than looping until
+/// convergence with no ceiling — the same "measured, not assumed"
+/// discipline as Phase 5's `correctly_rounded_divide` loop bound. Hitting
+/// the bound returns [`CdtError::ConstraintInsertionFailed`] rather than
+/// hanging or returning a silently-wrong result.
+pub fn constrained_delaunay2(
+    points: &[Point2],
+    constraints: &[(usize, usize)],
+) -> Result<ConstrainedTriangulation2, CdtError> {
+    for &(a, b) in constraints {
+        if a >= points.len() || b >= points.len() {
+            return Err(CdtError::InvalidVertexIndex);
+        }
+        if a == b {
+            return Err(CdtError::ZeroLengthConstraint);
+        }
+    }
+    if dedup_sorted(points).len() != points.len() {
+        return Err(CdtError::InvalidVertexIndex);
+    }
+
+    let mut seen_pairs: HashSet<(usize, usize)> = HashSet::new();
+    for &(a, b) in constraints {
+        let key = if a <= b { (a, b) } else { (b, a) };
+        if !seen_pairs.insert(key) {
+            return Err(CdtError::DuplicateConstraint);
+        }
+    }
+
+    for i in 0..constraints.len() {
+        for j in (i + 1)..constraints.len() {
+            let (a, b) = constraints[i];
+            let (c, d) = constraints[j];
+            let s1 = Segment2::new(points[a], points[b]);
+            let s2 = Segment2::new(points[c], points[d]);
+            match segment_intersection_kind(s1, s2) {
+                SegmentIntersectionKind::Proper => {
+                    return Err(CdtError::ProperlyCrossingConstraints);
+                }
+                SegmentIntersectionKind::CollinearOverlap => {
+                    return Err(CdtError::CollinearOverlappingConstraints);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let triangulation = delaunay2(points);
+
+    let vertex_of_coord = |p: Point2| -> VertexId {
+        triangulation
+            .vertices()
+            .find(|&(_, q)| q == p)
+            .expect("every input point has a VertexId: duplicates were already rejected")
+            .0
+    };
+    let vertex_id: Vec<VertexId> = points.iter().map(|&p| vertex_of_coord(p)).collect();
+
+    let mut faces: Vec<[VertexId; 3]> = triangulation
+        .faces()
+        .map(|f| triangulation.face_vertices(f))
+        .collect();
+    let mut face_neighbors: Vec<[Option<FaceId>; 3]> = triangulation
+        .faces()
+        .map(|f| triangulation.neighboring_faces(f))
+        .collect();
+    let vertex_pos: Vec<Point2> = triangulation.vertices().map(|(_, p)| p).collect();
+
+    let mut constrained_pairs: HashSet<(VertexId, VertexId)> = HashSet::new();
+    for &(a, b) in constraints {
+        let (u, v) = (vertex_id[a], vertex_id[b]);
+        insert_constraint_edge(
+            &mut faces,
+            &mut face_neighbors,
+            &vertex_pos,
+            &constrained_pairs,
+            u,
+            v,
+        )?;
+        constrained_pairs.insert(canon(u, v));
+    }
+
+    restore_unconstrained_delaunay(
+        &mut faces,
+        &mut face_neighbors,
+        &vertex_pos,
+        &constrained_pairs,
+    )?;
+
+    let final_triangulation = assemble_triangulation(vertex_pos, faces);
+    let constrained_edges: HashSet<EdgeId> = final_triangulation
+        .edges()
+        .filter(|&e| {
+            let (u, v) = final_triangulation.edge_vertices(e);
+            constrained_pairs.contains(&canon(u, v))
+        })
+        .collect();
+
+    Ok(ConstrainedTriangulation2 {
+        triangulation: final_triangulation,
+        constrained_edges,
+    })
+}
+
+fn canon(u: VertexId, v: VertexId) -> (VertexId, VertexId) {
+    if u.raw() <= v.raw() { (u, v) } else { (v, u) }
+}
+
+fn edge_exists(faces: &[[VertexId; 3]], u: VertexId, v: VertexId) -> bool {
+    faces.iter().any(|f| f.contains(&u) && f.contains(&v))
+}
+
+/// Every currently-existing triangulation edge that properly crosses
+/// segment `(u, v)`, as `(face_a, face_b)` pairs sharing that edge.
+///
+/// `constrained_pairs` (edges already realized for an earlier constraint
+/// in this same call) are never returned as candidates, even though the
+/// upfront pairwise non-crossing validation in [`constrained_delaunay2`]
+/// should already make this geometrically unreachable: two constraint
+/// segments that don't properly cross each other can't have one's
+/// realized edge properly crossed by the other's insertion path either.
+/// This filter is defense in depth against that argument being wrong
+/// (or violated by a future edit), not a case this scope expects to hit.
+fn crossing_faces(
+    faces: &[[VertexId; 3]],
+    face_neighbors: &[[Option<FaceId>; 3]],
+    vertex_pos: &[Point2],
+    constrained_pairs: &HashSet<(VertexId, VertexId)>,
+    u: VertexId,
+    v: VertexId,
+) -> Vec<(FaceId, FaceId)> {
+    let seg_uv = Segment2::new(vertex_pos[u.raw() as usize], vertex_pos[v.raw() as usize]);
+    let mut found = Vec::new();
+    let mut seen: HashSet<(VertexId, VertexId)> = HashSet::new();
+    for (i, face) in faces.iter().enumerate() {
+        let fa = FaceId::new(i as u32);
+        for k in 0..3 {
+            let Some(fb) = face_neighbors[i][k] else {
+                continue;
+            };
+            let (a, b) = (face[(k + 1) % 3], face[(k + 2) % 3]);
+            let key = canon(a, b);
+            if !seen.insert(key) {
+                continue;
+            }
+            if constrained_pairs.contains(&key) {
+                continue;
+            }
+            let seg_ab = Segment2::new(vertex_pos[a.raw() as usize], vertex_pos[b.raw() as usize]);
+            if segment_intersection_kind(seg_uv, seg_ab) == SegmentIntersectionKind::Proper {
+                found.push((fa, fb));
+            }
+        }
+    }
+    found
+}
+
+/// The two vertices shared by `fa`/`fb`'s triangles, and each triangle's
+/// own (unshared) apex vertex: `(shared_a, shared_b, apex_of_fa,
+/// apex_of_fb)`. Panics (via `expect`) only if `fa`/`fb` are not actually
+/// adjacent — an internal-invariant violation, never reachable from
+/// `constrained_delaunay2`'s public input validation.
+fn shared_and_apex(
+    faces: &[[VertexId; 3]],
+    fa: FaceId,
+    fb: FaceId,
+) -> (VertexId, VertexId, VertexId, VertexId) {
+    let tri_a = faces[fa.raw() as usize];
+    let tri_b = faces[fb.raw() as usize];
+    let p = *tri_a
+        .iter()
+        .find(|x| !tri_b.contains(x))
+        .expect("fa, fb must share exactly 2 vertices");
+    let q = *tri_b
+        .iter()
+        .find(|x| !tri_a.contains(x))
+        .expect("fa, fb must share exactly 2 vertices");
+    let shared: Vec<VertexId> = tri_a.into_iter().filter(|x| *x != p).collect();
+    (shared[0], shared[1], p, q)
+}
+
+/// `true` iff the quadrilateral formed by `fa`/`fb` (sharing an edge) is
+/// strictly convex — the precondition for flipping their shared edge to
+/// the other diagonal.
+fn can_flip(faces: &[[VertexId; 3]], vertex_pos: &[Point2], fa: FaceId, fb: FaceId) -> bool {
+    let (a, b, p, q) = shared_and_apex(faces, fa, fb);
+    let (pp, pq, pa, pb) = (
+        vertex_pos[p.raw() as usize],
+        vertex_pos[q.raw() as usize],
+        vertex_pos[a.raw() as usize],
+        vertex_pos[b.raw() as usize],
+    );
+    let oa = orient2d(pp, pq, pa);
+    let ob = orient2d(pp, pq, pb);
+    matches!(
+        (oa, ob),
+        (Orientation::Clockwise, Orientation::CounterClockwise)
+            | (Orientation::CounterClockwise, Orientation::Clockwise)
+    )
+}
+
+/// Flips the edge shared by `fa`/`fb` to the other diagonal, reusing both
+/// faces' existing slots (their `FaceId`s do not change) and fixing up
+/// every affected neighbor pointer, including the reciprocal update on
+/// the two outer neighbors that move from one face to the other.
+fn flip_edge(
+    faces: &mut [[VertexId; 3]],
+    face_neighbors: &mut [[Option<FaceId>; 3]],
+    fa: FaceId,
+    fb: FaceId,
+) {
+    let ia = fa.raw() as usize;
+    let ib = fb.raw() as usize;
+    let old_fa = faces[ia];
+    let old_fb = faces[ib];
+    let old_na = face_neighbors[ia];
+    let old_nb = face_neighbors[ib];
+
+    let p = *old_fa
+        .iter()
+        .find(|x| !old_fb.contains(x))
+        .expect("fa, fb must share exactly 2 vertices");
+    let q = *old_fb
+        .iter()
+        .find(|x| !old_fa.contains(x))
+        .expect("fa, fb must share exactly 2 vertices");
+
+    let pa = old_fa.iter().position(|&x| x == p).unwrap();
+    let fa_rot = [old_fa[pa], old_fa[(pa + 1) % 3], old_fa[(pa + 2) % 3]];
+    let na_rot = [old_na[pa], old_na[(pa + 1) % 3], old_na[(pa + 2) % 3]];
+    let (u, v) = (fa_rot[1], fa_rot[2]);
+    let n_opp_u = na_rot[1]; // fa's old neighbor across edge (p, v), opposite u
+    let n_opp_v = na_rot[2]; // fa's old neighbor across edge (p, u), opposite v
+
+    let pb = old_fb.iter().position(|&x| x == q).unwrap();
+    let fb_rot = [old_fb[pb], old_fb[(pb + 1) % 3], old_fb[(pb + 2) % 3]];
+    let nb_rot = [old_nb[pb], old_nb[(pb + 1) % 3], old_nb[(pb + 2) % 3]];
+    debug_assert_eq!(fb_rot[1], v, "fb's CCW order must trace v then u");
+    debug_assert_eq!(fb_rot[2], u);
+    let n_opp_v_in_fb = nb_rot[1]; // fb's old neighbor across edge (q, u), opposite v
+    let n_opp_u_in_fb = nb_rot[2]; // fb's old neighbor across edge (q, v), opposite u
+
+    faces[ia] = [p, u, q];
+    faces[ib] = [p, q, v];
+    face_neighbors[ia] = [n_opp_v_in_fb, Some(fb), n_opp_v];
+    face_neighbors[ib] = [n_opp_u_in_fb, n_opp_u, Some(fa)];
+
+    if let Some(outer) = n_opp_v_in_fb {
+        let slot = face_neighbors[outer.raw() as usize]
+            .iter()
+            .position(|&n| n == Some(fb))
+            .expect("reciprocal neighbor must exist");
+        face_neighbors[outer.raw() as usize][slot] = Some(fa);
+    }
+    if let Some(outer) = n_opp_u {
+        let slot = face_neighbors[outer.raw() as usize]
+            .iter()
+            .position(|&n| n == Some(fa))
+            .expect("reciprocal neighbor must exist");
+        face_neighbors[outer.raw() as usize][slot] = Some(fb);
+    }
+}
+
+fn flip_bound(face_count: usize) -> usize {
+    4 * face_count + 16
+}
+
+fn insert_constraint_edge(
+    faces: &mut [[VertexId; 3]],
+    face_neighbors: &mut [[Option<FaceId>; 3]],
+    vertex_pos: &[Point2],
+    constrained_pairs: &HashSet<(VertexId, VertexId)>,
+    u: VertexId,
+    v: VertexId,
+) -> Result<(), CdtError> {
+    if edge_exists(faces, u, v) {
+        return Ok(());
+    }
+
+    let bound = flip_bound(faces.len());
+    for iter in 0..bound {
+        if edge_exists(faces, u, v) {
+            record_cdt_flips(iter as u32);
+            return Ok(());
+        }
+        let crossing = crossing_faces(faces, face_neighbors, vertex_pos, constrained_pairs, u, v);
+        let Some(&(fa, fb)) = crossing
+            .iter()
+            .find(|&&(fa, fb)| can_flip(faces, vertex_pos, fa, fb))
+        else {
+            return Err(CdtError::ConstraintInsertionFailed);
+        };
+        flip_edge(faces, face_neighbors, fa, fb);
+    }
+    Err(CdtError::ConstraintInsertionFailed)
+}
+
+/// `true` iff the edge shared by `fa`/`fb` (apexes `p`, `q`) is locally
+/// Delaunay: neither apex lies strictly inside the other triangle's
+/// circumcircle.
+fn is_locally_delaunay(
+    faces: &[[VertexId; 3]],
+    vertex_pos: &[Point2],
+    fa: FaceId,
+    fb: FaceId,
+) -> bool {
+    let (_, _, p, q) = shared_and_apex(faces, fa, fb);
+    let (pp, pq) = (vertex_pos[p.raw() as usize], vertex_pos[q.raw() as usize]);
+    // faces[fa] is CCW as (p, a, b) up to rotation -- reconstruct the
+    // correct CCW order via face_vertices' own stored rotation instead of
+    // assuming one, so incircle's orientation precondition holds.
+    let tri_a = faces[fa.raw() as usize];
+    let tri_b = faces[fb.raw() as usize];
+    let ccw_incircle = |tri: [VertexId; 3], vertex_pos: &[Point2], query: Point2| -> Sign {
+        let pts = [
+            vertex_pos[tri[0].raw() as usize],
+            vertex_pos[tri[1].raw() as usize],
+            vertex_pos[tri[2].raw() as usize],
+        ];
+        incircle(pts[0], pts[1], pts[2], query)
+    };
+    ccw_incircle(tri_a, vertex_pos, pq) != Sign::Positive
+        && ccw_incircle(tri_b, vertex_pos, pp) != Sign::Positive
+}
+
+fn restore_unconstrained_delaunay(
+    faces: &mut [[VertexId; 3]],
+    face_neighbors: &mut [[Option<FaceId>; 3]],
+    vertex_pos: &[Point2],
+    constrained_pairs: &HashSet<(VertexId, VertexId)>,
+) -> Result<(), CdtError> {
+    let bound = flip_bound(faces.len());
+    for iter in 0..bound {
+        let bad =
+            find_first_bad_unconstrained_edge(faces, face_neighbors, vertex_pos, constrained_pairs);
+        match bad {
+            None => {
+                record_restore_flips(iter as u32);
+                return Ok(());
+            }
+            Some((fa, fb)) => {
+                if !can_flip(faces, vertex_pos, fa, fb) {
+                    return Err(CdtError::ConstraintInsertionFailed);
+                }
+                flip_edge(faces, face_neighbors, fa, fb);
+            }
+        }
+    }
+    Err(CdtError::ConstraintInsertionFailed)
+}
+
+fn find_first_bad_unconstrained_edge(
+    faces: &[[VertexId; 3]],
+    face_neighbors: &[[Option<FaceId>; 3]],
+    vertex_pos: &[Point2],
+    constrained_pairs: &HashSet<(VertexId, VertexId)>,
+) -> Option<(FaceId, FaceId)> {
+    let mut seen: HashSet<(VertexId, VertexId)> = HashSet::new();
+    for (i, face) in faces.iter().enumerate() {
+        let fa = FaceId::new(i as u32);
+        for k in 0..3 {
+            let Some(fb) = face_neighbors[i][k] else {
+                continue;
+            };
+            let (a, b) = (face[(k + 1) % 3], face[(k + 2) % 3]);
+            let key = canon(a, b);
+            if !seen.insert(key) {
+                continue;
+            }
+            if constrained_pairs.contains(&key) {
+                continue;
+            }
+            if !is_locally_delaunay(faces, vertex_pos, fa, fb) {
+                return Some((fa, fb));
+            }
+        }
+    }
+    None
+}
+
+/// Checks `t`'s topology the same way [`super::delaunay2::Triangulation2::validate_topology`]
+/// does, but narrowing the local-Delaunay check to unconstrained edges
+/// only — a constrained edge is allowed (expected) to violate it.
+#[doc(hidden)]
+pub fn validate_cdt_topology(cdt: &ConstrainedTriangulation2) -> Vec<TopologyError> {
+    cdt.triangulation
+        .validate_topology_excluding(&|e| cdt.is_constrained(e))
+}
+
+#[cfg(test)]
+use std::cell::Cell;
+#[cfg(test)]
+thread_local! {
+    static MAX_CDT_FLIPS: Cell<u32> = const { Cell::new(0) };
+    static MAX_RESTORE_FLIPS: Cell<u32> = const { Cell::new(0) };
+}
+#[cfg(test)]
+fn record_cdt_flips(n: u32) {
+    MAX_CDT_FLIPS.with(|c| c.set(c.get().max(n)));
+}
+#[cfg(not(test))]
+#[inline(always)]
+fn record_cdt_flips(_n: u32) {}
+#[cfg(test)]
+fn record_restore_flips(n: u32) {
+    MAX_RESTORE_FLIPS.with(|c| c.set(c.get().max(n)));
+}
+#[cfg(not(test))]
+#[inline(always)]
+fn record_restore_flips(_n: u32) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn p(x: f64, y: f64) -> Point2 {
+        Point2::new(x, y).unwrap()
+    }
+
+    fn reset_flip_counters() {
+        MAX_CDT_FLIPS.with(|c| c.set(0));
+        MAX_RESTORE_FLIPS.with(|c| c.set(0));
+    }
+
+    /// The unordered vertex-coordinate pair for `edge`, for assertions
+    /// that don't want to depend on `VertexId`'s arbitrary numbering.
+    fn edge_coords(t: &Triangulation2, edge: EdgeId) -> ((f64, f64), (f64, f64)) {
+        let (u, v) = t.edge_vertices(edge);
+        let pu = t.vertices().find(|&(id, _)| id == u).unwrap().1;
+        let pv = t.vertices().find(|&(id, _)| id == v).unwrap().1;
+        let ku = (pu.x(), pu.y());
+        let kv = (pv.x(), pv.y());
+        if ku <= kv { (ku, kv) } else { (kv, ku) }
+    }
+
+    fn find_edge_by_coords(t: &Triangulation2, a: Point2, b: Point2) -> Option<EdgeId> {
+        let want = {
+            let ka = (a.x(), a.y());
+            let kb = (b.x(), b.y());
+            if ka <= kb { (ka, kb) } else { (kb, ka) }
+        };
+        t.edges().find(|&e| edge_coords(t, e) == want)
+    }
+
+    #[test]
+    fn empty_input_and_no_constraints() {
+        let cdt = constrained_delaunay2(&[], &[]).unwrap();
+        assert!(cdt.triangulation().is_empty());
+        assert!(validate_cdt_topology(&cdt).is_empty());
+    }
+
+    #[test]
+    fn no_constraints_matches_plain_delaunay() {
+        let pts = [
+            p(0.0, 0.0),
+            p(4.0, 0.0),
+            p(4.0, 4.0),
+            p(0.0, 4.0),
+            p(2.0, 2.0),
+        ];
+        let cdt = constrained_delaunay2(&pts, &[]).unwrap();
+        let plain = delaunay2(&pts);
+        assert_eq!(cdt.triangulation().len(), plain.len());
+        assert!(validate_cdt_topology(&cdt).is_empty());
+        assert!(cdt.triangulation().validate_topology().is_empty());
+    }
+
+    #[test]
+    fn invalid_vertex_index() {
+        let pts = [p(0.0, 0.0), p(1.0, 0.0)];
+        assert_eq!(
+            constrained_delaunay2(&pts, &[(0, 5)]),
+            Err(CdtError::InvalidVertexIndex)
+        );
+    }
+
+    #[test]
+    fn duplicate_point_is_invalid_vertex_index() {
+        let pts = [p(0.0, 0.0), p(1.0, 0.0), p(0.0, 0.0)];
+        assert_eq!(
+            constrained_delaunay2(&pts, &[]),
+            Err(CdtError::InvalidVertexIndex)
+        );
+    }
+
+    #[test]
+    fn zero_length_constraint() {
+        let pts = [p(0.0, 0.0), p(1.0, 0.0)];
+        assert_eq!(
+            constrained_delaunay2(&pts, &[(0, 0)]),
+            Err(CdtError::ZeroLengthConstraint)
+        );
+    }
+
+    #[test]
+    fn duplicate_constraint() {
+        let pts = [p(0.0, 0.0), p(1.0, 0.0), p(0.0, 1.0)];
+        assert_eq!(
+            constrained_delaunay2(&pts, &[(0, 1), (1, 0)]),
+            Err(CdtError::DuplicateConstraint)
+        );
+    }
+
+    #[test]
+    fn properly_crossing_constraints() {
+        // Two diagonals of a square, both as constraints -- they cross
+        // strictly in the interior.
+        let pts = [p(0.0, 0.0), p(4.0, 0.0), p(4.0, 4.0), p(0.0, 4.0)];
+        assert_eq!(
+            constrained_delaunay2(&pts, &[(0, 2), (1, 3)]),
+            Err(CdtError::ProperlyCrossingConstraints)
+        );
+    }
+
+    #[test]
+    fn collinear_overlapping_constraints() {
+        let pts = [p(0.0, 0.0), p(1.0, 0.0), p(2.0, 0.0), p(3.0, 0.0)];
+        // (0,2) and (1,3) are collinear and overlap along [1,2].
+        assert_eq!(
+            constrained_delaunay2(&pts, &[(0, 2), (1, 3)]),
+            Err(CdtError::CollinearOverlappingConstraints)
+        );
+    }
+
+    #[test]
+    fn shared_endpoint_constraints_are_allowed() {
+        // A simple non-crossing PSLG: a triangle's 3 edges, all sharing
+        // endpoints pairwise -- must not be rejected as crossing/overlapping.
+        let pts = [p(0.0, 0.0), p(4.0, 0.0), p(0.0, 4.0)];
+        let cdt = constrained_delaunay2(&pts, &[(0, 1), (1, 2), (2, 0)]).unwrap();
+        assert!(validate_cdt_topology(&cdt).is_empty());
+    }
+
+    /// The key acceptance test: force a constraint onto the edge the
+    /// *unconstrained* Delaunay triangulation would NOT choose (the
+    /// non-Delaunay diagonal of a convex quad), and confirm it survives
+    /// -- both that it's present as an edge and that the restore-Delaunay
+    /// pass didn't flip it away, which it would if the "never flip a
+    /// constrained edge" rule were ignored. Determined empirically (via
+    /// the crate's own `delaunay2`, not hand-derived), matching this
+    /// project's "measure it" discipline instead of assuming which
+    /// diagonal a hand-picked quad prefers.
+    #[test]
+    fn constrained_edge_survives_even_when_not_locally_delaunay() {
+        let a = p(0.0, 0.0);
+        let b = p(5.0, 1.0);
+        let c = p(4.0, 4.0);
+        let d = p(-1.0, 3.0);
+        let pts = [a, b, c, d];
+
+        let natural = delaunay2(&pts);
+        assert_eq!(natural.len(), 2, "expected a convex quad -> 2 triangles");
+        // The two candidate diagonals are (a,c) and (b,d) (indices 0,2 and
+        // 1,3) -- whichever one is NOT already a natural Delaunay edge is
+        // the non-Delaunay one; constrain that one.
+        let ac_exists = find_edge_by_coords(&natural, a, c).is_some();
+        let (constrained_pair, constrained_a, constrained_b) = if ac_exists {
+            ((1usize, 3usize), b, d)
+        } else {
+            ((0usize, 2usize), a, c)
+        };
+
+        let cdt = constrained_delaunay2(&pts, &[constrained_pair]).unwrap();
+        let edge = find_edge_by_coords(cdt.triangulation(), constrained_a, constrained_b)
+            .expect("constrained diagonal must be present as an edge");
+        assert!(
+            cdt.is_constrained(edge),
+            "the inserted diagonal must be marked constrained"
+        );
+        assert!(
+            validate_cdt_topology(&cdt).is_empty(),
+            "constrained-aware validator must not flag the constrained edge"
+        );
+
+        // Confirm this genuinely exercised the "would have been flipped"
+        // path: the unconstrained validator (no exclusions) SHOULD flag
+        // this same edge as not locally Delaunay, proving the constraint
+        // exclusion is load-bearing, not vacuous.
+        let unconstrained_errors = cdt.triangulation().validate_topology();
+        assert!(
+            unconstrained_errors
+                .iter()
+                .any(|e| matches!(e, TopologyError::NotLocallyDelaunay { .. })),
+            "test setup didn't actually pick a non-Delaunay diagonal: {unconstrained_errors:?}"
+        );
+    }
+
+    /// Two independent non-Delaunay diagonals, each needing its own flip,
+    /// inserted in the same call. Guards against `crossing_faces`
+    /// offering an *already-realized* constraint edge as a flip candidate
+    /// while recovering a later constraint -- see `crossing_faces`' doc
+    /// comment. The two quads are far apart so their local Delaunay
+    /// structure can't interact, isolating this from
+    /// `constrained_edge_survives_even_when_not_locally_delaunay`'s
+    /// single-constraint case.
+    #[test]
+    fn multiple_constraints_each_needing_a_flip_all_survive() {
+        let quad = |ox: f64, oy: f64| {
+            [
+                p(0.0 + ox, 0.0 + oy),
+                p(5.0 + ox, 1.0 + oy),
+                p(4.0 + ox, 4.0 + oy),
+                p(-1.0 + ox, 3.0 + oy),
+            ]
+        };
+        let qa = quad(0.0, 0.0);
+        let qb = quad(100.0, 0.0);
+        let pts = [qa[0], qa[1], qa[2], qa[3], qb[0], qb[1], qb[2], qb[3]];
+
+        let natural = delaunay2(&pts);
+        // For each quad, whichever diagonal is NOT already a natural
+        // Delaunay edge is the one to constrain (same reasoning as
+        // `constrained_edge_survives_even_when_not_locally_delaunay`).
+        let pick_diagonal = |q: [Point2; 4], idx: [usize; 4]| -> ((usize, usize), Point2, Point2) {
+            let ac_exists = find_edge_by_coords(&natural, q[0], q[2]).is_some();
+            if ac_exists {
+                ((idx[1], idx[3]), q[1], q[3])
+            } else {
+                ((idx[0], idx[2]), q[0], q[2])
+            }
+        };
+        let (constraint_a, ca0, ca1) = pick_diagonal(qa, [0, 1, 2, 3]);
+        let (constraint_b, cb0, cb1) = pick_diagonal(qb, [4, 5, 6, 7]);
+
+        let cdt = constrained_delaunay2(&pts, &[constraint_a, constraint_b]).unwrap();
+        let edge_a = find_edge_by_coords(cdt.triangulation(), ca0, ca1)
+            .expect("quad A's constrained diagonal must be present");
+        let edge_b = find_edge_by_coords(cdt.triangulation(), cb0, cb1)
+            .expect("quad B's constrained diagonal must be present");
+        assert!(cdt.is_constrained(edge_a), "quad A's diagonal must survive");
+        assert!(cdt.is_constrained(edge_b), "quad B's diagonal must survive");
+        assert!(
+            validate_cdt_topology(&cdt).is_empty(),
+            "constrained-aware validator must not flag either constrained edge"
+        );
+
+        // Confirm both actually needed the exclusion -- the unconstrained
+        // validator must flag both, proving neither flip was a no-op and
+        // neither was silently dropped as a flip candidate while
+        // recovering the other constraint.
+        let unconstrained_errors = cdt.triangulation().validate_topology();
+        let flags_edge = |x: Point2, y: Point2| {
+            let coord = |id: VertexId| {
+                cdt.triangulation()
+                    .vertices()
+                    .find(|&(vid, _)| vid == id)
+                    .unwrap()
+                    .1
+            };
+            unconstrained_errors.iter().any(|e| match e {
+                TopologyError::NotLocallyDelaunay { u, v } => {
+                    let (pu, pv) = (coord(*u), coord(*v));
+                    (pu == x && pv == y) || (pu == y && pv == x)
+                }
+                _ => false,
+            })
+        };
+        assert!(
+            flags_edge(ca0, ca1),
+            "test setup didn't pick a non-Delaunay diagonal for quad A: {unconstrained_errors:?}"
+        );
+        assert!(
+            flags_edge(cb0, cb1),
+            "test setup didn't pick a non-Delaunay diagonal for quad B: {unconstrained_errors:?}"
+        );
+    }
+
+    #[test]
+    fn constraint_already_a_delaunay_edge_is_a_noop_flip() {
+        let pts = [p(0.0, 0.0), p(4.0, 0.0), p(0.0, 4.0)];
+        let cdt = constrained_delaunay2(&pts, &[(0, 1)]).unwrap();
+        let edge = find_edge_by_coords(cdt.triangulation(), pts[0], pts[1]).unwrap();
+        assert!(cdt.is_constrained(edge));
+    }
+
+    #[test]
+    fn deterministic_regardless_of_constraint_order() {
+        let pts = [
+            p(0.0, 0.0),
+            p(4.0, 0.0),
+            p(4.0, 4.0),
+            p(0.0, 4.0),
+            p(2.0, 2.0),
+        ];
+        // Opposite hull edges: clearly non-crossing and non-collinear,
+        // regardless of which order they're inserted in.
+        let a = constrained_delaunay2(&pts, &[(0, 1), (2, 3)]).unwrap();
+        let b = constrained_delaunay2(&pts, &[(2, 3), (0, 1)]).unwrap();
+        assert_eq!(a.triangulation().triangles(), b.triangulation().triangles());
+    }
+
+    /// Measures the worst-case flip count across a spread of convex-quad
+    /// and grid configurations, the same "measure the loop bound, don't
+    /// just assert it's fine" discipline as Phase 5's
+    /// `divide_loop_iteration_bound_is_generous`.
+    #[test]
+    fn flip_count_stays_well_below_the_bound() {
+        reset_flip_counters();
+        let mut rng = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            (rng % 13) as f64
+        };
+
+        for _ in 0..40 {
+            // A small random point grid plus every non-crossing pairwise
+            // constraint we can find without violating the crossing checks.
+            let mut pts = Vec::new();
+            for _ in 0..8 {
+                pts.push(p(next(), next()));
+            }
+            pts.dedup_by(|a, b| a == b);
+            if pts.len() < 3 {
+                continue;
+            }
+            // Try a handful of single-constraint insertions (skip any that
+            // fail validation -- this test measures flip counts on
+            // whatever succeeds, not validation logic itself).
+            for i in 0..pts.len() {
+                for j in (i + 1)..pts.len() {
+                    if pts[i] == pts[j] {
+                        continue;
+                    }
+                    let _ = constrained_delaunay2(&pts, &[(i, j)]);
+                }
+            }
+        }
+
+        let max_cdt = MAX_CDT_FLIPS.with(|c| c.get());
+        let max_restore = MAX_RESTORE_FLIPS.with(|c| c.get());
+        eprintln!(
+            "cdt: measured max insertion flips = {max_cdt}, max restore flips = {max_restore}"
+        );
+        // Bound is `4 * face_count + 16`; these grids have at most ~14
+        // faces, so the bound is ~72 -- require a comfortable margin below
+        // it, not just "didn't hit the ceiling".
+        assert!(
+            max_cdt < 20,
+            "insertion flip count {max_cdt} closer to the bound than expected"
+        );
+        assert!(
+            max_restore < 20,
+            "restore flip count {max_restore} closer to the bound than expected"
+        );
+    }
+}

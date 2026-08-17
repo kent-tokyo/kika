@@ -18,3 +18,19 @@ pub struct EdgeId(pub(super) u32);
 /// caveat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FaceId(pub(super) u32);
+
+impl VertexId {
+    pub(super) fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl FaceId {
+    pub(super) fn new(raw: u32) -> Self {
+        FaceId(raw)
+    }
+
+    pub(super) fn raw(self) -> u32 {
+        self.0
+    }
+}

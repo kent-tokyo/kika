@@ -1,12 +1,15 @@
 # ADR-006: Triangulation adjacency structure for Phase 6
 
-Status: Decided and implemented for Phase 6A/6B (indexed triangle
+Status: Decided and implemented for Phase 6A/6B/6C (indexed triangle
 adjacency, as recommended below). Phase 6B added `VertexId`/`EdgeId`/
 `FaceId` and the 9 topology-query methods plus an internal
 `validate_topology` — see `src/triangulation/delaunay2.rs` and
-`src/triangulation/ids.rs`. Phase 6C (constrained Delaunay, using this
-structure) and Phase 6b's overlay structure (still open, see below) are
-not implemented yet.
+`src/triangulation/ids.rs`. Phase 6C (constrained Delaunay, `src/triangulation/cdt.rs`)
+now uses this structure directly: edge flip via reciprocal
+neighbor-pointer fixup on `faces`/`face_neighbors`, plus
+`validate_topology_excluding` to let a constrained edge stay non-Delaunay
+without being flagged. Phase 6b's overlay structure (still open, see
+below) remains unimplemented.
 
 ## Context
 

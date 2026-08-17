@@ -64,6 +64,24 @@ permutation-invariance property tests
 | 4 or more points exactly cocircular | More than one triangulation satisfies the empty-circumcircle (Delaunay) property simultaneously — there is no single "the" Delaunay triangulation for a cocircular point set. **Tie-break rule**: a point exactly on a triangle's circumcircle boundary (`Sign::Zero` from `incircle`) does not make that triangle "bad" — it is not removed/replaced. Combined with `delaunay2`'s canonical sort-before-insertion, this makes the result a deterministic function of the input *set* (not insertion order) — but it is **not** the mathematically-canonical or unique triangulation, and does not necessarily match another Delaunay implementation's choice on the same cocircular input (e.g. which diagonal a cocircular quad's two triangles use). See `tests/differential/delaunay2.rs`'s `random_points_on_a_circle` and `tests/regression/delaunay2.rs`. |
 | Near-collinear point cluster plus a far-off point | Handled exactly, at any scale — see `docs/numerical-model.md`'s Phase 4 section for why this was a real, found bug (not just a theoretical concern) in an earlier super-triangle-based design, and how the symbolic single-ghost-vertex fix removes the scale dependency entirely. |
 
+## Constrained Delaunay degeneracies (Phase 6C, implemented)
+
+`constrained_delaunay2`'s scope is deliberately narrow (see its doc
+comment and `src/triangulation/cdt.rs`'s module doc comment); every
+deviation from a plain PSLG-with-Steiner-points CDT is a typed
+`CdtError`, never a panic or silent misbehavior.
+
+| Case | Behavior |
+|---|---|
+| Two distinct constraint segments share exactly one endpoint | Allowed — not a crossing, checked exhaustively up front via the same `segment_intersection_kind` used everywhere else in the crate. See `shared_endpoint_constraints_are_allowed`. |
+| Two distinct constraint segments properly cross (share a single interior point, endpoint of neither) | Rejected up front: `CdtError::ProperlyCrossingConstraints`. Automatic intersection-point generation is out of scope for this narrow version — see ADR-004's Phase 6 re-evaluation. |
+| Two distinct constraint segments are collinear and overlap along a sub-segment | Rejected up front: `CdtError::CollinearOverlappingConstraints`. |
+| A constraint segment passes exactly through a third, unrelated input vertex | No single triangulation edge can realize a segment through an intermediate vertex, and this scope does not auto-split it into two sub-constraints. The flip search exhausts its bound and returns `CdtError::ConstraintInsertionFailed`, not a wrong or partial result. |
+| A constraint is already a Delaunay edge of the unconstrained triangulation | No-op: recognized immediately (`edge_exists` check before any flip), just marked constrained. See `constraint_already_a_delaunay_edge_is_a_noop_flip`. |
+| A constraint's realized edge is not locally Delaunay | Kept anyway — constrained edges are never flip candidates during the unconstrained-Delaunay restoration pass (`restore_unconstrained_delaunay`'s `constrained_pairs` exclusion), and the topology validator (`validate_cdt_topology`) does not flag it. The plain `Triangulation2::validate_topology()` *would* still flag it if run directly on the constrained result — that's the expected, documented difference between the two validators, not a bug. See `constrained_edge_survives_even_when_not_locally_delaunay`. |
+| Multiple constraints in one call, each needing its own edge flips | Each constraint's flip search defensively excludes every already-realized constraint from earlier in the same call as a flip candidate — see `crossing_faces`' doc comment for why this should be geometrically unreachable given the upfront non-crossing validation, and why the exclusion exists anyway as defense in depth. See `multiple_constraints_each_needing_a_flip_all_survive`. |
+| Same point set and constraint set, different constraint insertion order | Same result — `constrained_delaunay2` builds from a canonically-sorted vertex order (inherited from `delaunay2`) and each constraint's flip search only depends on the current triangulation state, not accumulated insertion history. See `deterministic_regardless_of_constraint_order`. |
+
 ## Algorithm-level tie-breaking (not yet applicable)
 
 Polygon Boolean (Phase 6) has cases with more than one topologically valid
