@@ -1,15 +1,15 @@
 [package]
 name = "kika"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
-description = "Robust computational geometry for Rust: exact predicates with adaptive/exact fallback arithmetic. A pure-Rust alternative to CGAL — no CMake, no Boost, no GMP/MPFR, WASM-ready."
+description = "Robust 2D kernel for Rust: exact predicates, Delaunay triangulation, constrained Delaunay triangulation, and simple-polygon triangulation, with adaptive/exact fallback arithmetic. No CMake, no Boost, no GMP/MPFR, WASM-ready."
 repository = "https://github.com/kent-tokyo/kika"
 homepage = "https://github.com/kent-tokyo/kika"
 documentation = "https://docs.rs/kika"
 readme = "README.md"
-keywords = ["geometry", "delaunay", "predicates", "robust", "cgal"]
+keywords = ["geometry", "delaunay", "predicates", "triangulation", "cgal"]
 categories = ["algorithms", "science", "mathematics", "wasm"]
 
 [lib]
