@@ -1,9 +1,11 @@
 # Release checklist
 
-Not run yet — no release has happened. `crates.io` publish and GitHub
-release both require explicit user approval (AGENTS.md §19,
-`tasks/todo.md`'s "Deferred pending explicit user approval") regardless of
-how much of this checklist is green.
+0.2.0 release preparation in progress — no release has happened yet.
+`crates.io` publish, GitHub release, and the `git push`/tag that precede
+them all require explicit user approval (AGENTS.md §19, `tasks/todo.md`'s
+"Deferred pending explicit user approval") regardless of how much of this
+checklist is green. See this checklist's checkboxes for exactly what has
+and hasn't been verified as of the 0.2.0 version-bump commit.
 
 ## Before any release
 
@@ -21,12 +23,9 @@ how much of this checklist is green.
 - [ ] `cargo publish --dry-run` passes
 - [ ] `CHANGELOG.md` has a dated entry for the release, not just
       `[Unreleased]`
-- [ ] Version bumped in `Cargo.toml`, consistent with what actually
-      shipped (0.1.0 for the predicate/intersection/hull/Delaunay scope;
-      0.2.0-worthy scope — triangulation topology, constrained Delaunay,
-      and simple-polygon triangulation — has now landed as of Phase 6D,
-      see ADR-006 and `tasks/todo.md`, but the version bump itself is a
-      release decision, not done automatically as each phase lands)
+- [ ] Version bumped in `Cargo.toml` to `0.2.0`, consistent with what's
+      actually shipping (triangulation topology, constrained Delaunay,
+      and simple-polygon triangulation — see ADR-006 and `tasks/todo.md`)
 - [ ] `README.md`'s Status line and Maturity table match what's actually
       shipping, not aspirational
 
@@ -37,10 +36,11 @@ how much of this checklist is green.
       (examples are not currently run in CI, only built via the normal
       `cargo build`/`clippy --all-targets` steps, which do compile them)
 
-## Explicitly out of scope for v0.1/v0.2
+## Explicitly out of scope for 0.2.0
 
 Per `tasks/todo.md`'s roadmap: polygon Boolean, exact Voronoi
 construction, 3D triangulation, mesh Boolean/repair, surface
 reconstruction, large-scale competitive benchmarking, long-duration
 fuzzing, full CGAL differential verification. None of these block a
-release of what already exists.
+release of what already exists — polygon Boolean/Voronoi work starts
+after 0.2.0 ships, not before.

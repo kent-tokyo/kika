@@ -5,7 +5,26 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-17
+
+A robust 2D kernel with exact predicates, 2D convex hull, Delaunay
+triangulation, constrained Delaunay triangulation (narrow scope), and
+simple-polygon triangulation (narrow scope). This is the first tagged
+release — everything below, from the initial predicate core through
+Phase 6D, ships as 0.2.0.
+
 ### Added
+
+- Runnable examples for constrained Delaunay and simple-polygon
+  triangulation: `examples/constrained_delaunay.rs` (forces a specific
+  non-Delaunay diagonal, asserts it survives and is marked constrained)
+  and `examples/polygon_triangulation.rs` (triangulates a non-convex
+  L-shaped polygon, asserts triangle count/CCW/area conservation) — 7
+  runnable examples total. Matching `# Examples` doctests added to
+  `constrained_delaunay2`'s and `triangulate_polygon`'s own doc comments
+  (10 doctests total, up from 8), mirrored as short snippets in README's
+  Minimal example section so the README can't silently drift from what's
+  actually compiled and run.
 
 - Small-scale, fixed-seed sanity benchmarks (`benches/sanity.rs`,
   `cargo bench --bench sanity`, `harness = false` so it runs on stable):

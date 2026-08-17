@@ -10,10 +10,15 @@ robust 2D/3D computational geometry: exact predicates with adaptive/exact
 fallback arithmetic, and — in later phases — triangulation, hull, and
 polygon algorithms built on top of that foundation.
 
-Status: **pre-alpha (Phase 1 + 2 + 3 + 4 + 5 complete, Phase 6 not
-started).** No stability guarantees. See
-[Roadmap](#roadmap) for what does not exist yet — **Kika is not a CGAL
-replacement yet**, it is the robust kernel a future one would be built on.
+Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.2.0,
+Kika is a robust 2D kernel with exact predicates, 2D convex hull, Delaunay
+triangulation, constrained Delaunay triangulation (narrow scope), and
+simple-polygon triangulation (narrow scope) — see
+[Implemented today](#implemented-today) and the
+[Maturity](#maturity) table below for exactly what that does and doesn't
+cover. No stability guarantees yet. See [Roadmap](#roadmap) for what
+doesn't exist yet — **Kika is not a CGAL replacement**, it is a robust
+kernel a future one could be built on.
 
 ## Why not just use CGAL?
 

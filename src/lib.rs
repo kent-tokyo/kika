@@ -1,6 +1,11 @@
-//! Kika — robust computational geometry for Rust.
+//! Kika — a robust 2D kernel for Rust: exact predicates, Delaunay
+//! triangulation, constrained Delaunay triangulation, and simple-polygon
+//! triangulation.
 //!
-//! Pre-alpha; see the repository README and `docs/` for scope and status.
+//! Pre-1.0, no stability guarantees yet; see the repository README and
+//! `docs/` for exact scope (each triangulation feature is narrow-scope —
+//! see the [Maturity table](https://github.com/kent-tokyo/kika#maturity))
+//! and status.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

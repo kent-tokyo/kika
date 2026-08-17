@@ -1,23 +1,25 @@
 # Compatibility
 
-Status: Phase 1-5 complete; Phase 6A-6D complete (narrow-scope
-constrained Delaunay and simple-polygon triangulation — see
-`README.md`'s Maturity table). Polygon Boolean and later Phase 6 work
-not started, deliberately deferred.
+Status: Phase 1-5 complete; Phase 6A-6D complete. As of the 0.2.0
+candidate, Kika is a robust 2D kernel with exact predicates, 2D convex
+hull, Delaunay triangulation, constrained Delaunay triangulation (narrow
+scope), and simple-polygon triangulation (narrow scope) — see
+`README.md`'s Maturity table for exactly what each covers. Polygon
+Boolean and later Phase 6 work not started, deliberately deferred.
 
 ## Platforms
 
-* `aarch64-apple-darwin` — full test suite (259 tests across unit,
+* `aarch64-apple-darwin` — full test suite (261 tests across unit,
   differential, adversarial, regression, doctests) run locally on this
   target during development, not just built.
 * `x86_64`, `aarch64` Linux/macOS/Windows — `.github/workflows/ci.yml`
   runs the full test suite on `ubuntu-latest`, `macos-latest` (Apple
   Silicon on current GitHub-hosted runners), `windows-latest`. Confirmed
-  green on an actual push to `kent-tokyo/kika` (all jobs: fmt, clippy,
-  test matrix, MSRV, wasm32 build, `cargo doc`, `cargo deny`) as of
-  Phase 5's push — Phase 6A-6D's later commits are verified locally
-  (this same suite, plus `cargo bench --bench sanity`) but not yet
-  pushed, so CI has not run on them yet; see `tasks/todo.md`.
+  green on actual pushes to `kent-tokyo/kika` (all jobs: fmt, clippy,
+  test matrix, MSRV, wasm32 build, `cargo doc`, `cargo deny`) both as of
+  Phase 5's push and again after Phase 6A-6D + the CDT bug-fix commit
+  landed (commit `d5e755a`, all 9 jobs green) — CI-confirmed, not just
+  locally verified.
 * `wasm32-unknown-unknown` — library **builds** successfully, verified
   both locally and in CI (`cargo build --target wasm32-unknown-unknown
   --lib`). Tests do **not** run under wasm32 — that needs a WASM test
