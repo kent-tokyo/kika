@@ -47,3 +47,10 @@ path = "fuzz_targets/polygon_validity.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "predicate_input_bytes"
+path = "fuzz_targets/predicate_input_bytes.rs"
+test = false
+doc = false
+bench = false

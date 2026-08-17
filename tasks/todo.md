@@ -1,5 +1,24 @@
 # Todo
 
+## Done (fuzz: predicate_input_bytes target)
+
+- [x] Added `fuzz/fuzz_targets/predicate_input_bytes.rs` — the last
+      applicable target from AGENTS.md §12's original list.
+      Raw-bit-pattern (`f64::from_bits`) fuzzing of
+      `orient2d`/`orient3d`/`incircle`/`insphere`, complementing the
+      existing small-integer-grid targets (which stress degenerate
+      *configurations*) with raw magnitude/bit-pattern diversity (`NaN`,
+      infinity, subnormals, full range) — `Point2::new`/`Point3::new`'s
+      own finite-coordinate validation is exercised the same way. Ran
+      clean: 40,224 executions / 90s, no crashes.
+- [x] `polygon parser`, AGENTS.md §12's remaining unimplemented target,
+      confirmed inapplicable rather than left silently unstarted: this
+      crate never grew a text/byte-format polygon parser (`Polygon2` is
+      built directly from `Vec<Point2>`, no WKT/GeoJSON/etc. surface
+      exists) — fuzzing it would mean building a parser expressly to
+      fuzz it, backwards from the point of fuzzing existing attack
+      surface. Noted here so it doesn't get silently retried.
+
 ## Done (wasm32 test execution, not just build)
 
 - [x] Added `wasm-bindgen-test` as a `wasm32`-only dev-dependency
@@ -308,17 +327,15 @@
 
 ## Known gaps, not yet closed (see docs/compatibility.md)
 
-- [ ] The 5 fuzz targets added so far (`segment_intersection`,
-      `convex_hull`, `delaunay_insert`, `triangulation_topology_validator`,
-      and — added covering the new 0.4.0 code — `polygon_validity`:
-      `Polygon2::basic_validity`/`find_self_intersection`/`relation_to`
-      and `triangulate_polygon`/`triangulate_polygon_with_holes` never
-      panic, and any `Ok` triangulation satisfies its own triangle-count
-      invariant) ran clean on short (60-90s) local runs only — no
-      coverage-guided corpus persisted across runs, no nightly/long-duration
-      run performed yet, no `predicate input bytes`/`polygon parser`
-      targets from AGENTS.md §12's list (`polygon_validity` closes the
-      third item on that list)
+- [ ] All 6 fuzz targets that map onto something this crate actually has
+      (`segment_intersection`, `convex_hull`, `delaunay_insert`,
+      `triangulation_topology_validator`, `polygon_validity`,
+      `predicate_input_bytes`) ran clean on short (60-90s) local runs
+      only — no coverage-guided corpus persisted across runs, no
+      nightly/long-duration run performed yet. AGENTS.md §12's original
+      list is now fully addressed: its 7th item, `polygon parser`,
+      doesn't apply — this crate never grew a text/byte-format parser to
+      fuzz (see the "Done" section above).
 - [ ] `incircle`/`insphere` safe-magnitude-range bounds
       (`docs/numerical-model.md`) are empirically-checked, not tightly
       derived on the floor side
@@ -331,8 +348,11 @@
       left open pending the overlay algorithm's actual needs. Not started,
       deliberately after 6C/6D per the user's explicit sequencing.
 - [ ] CGAL differential-test harness (separate program, §10) — currently
-      environment-blocked, not just unstarted: CGAL/pkg-config are not
-      installed in this development environment
+      environment-blocked, not just unstarted: `pkg-config` is now
+      installed (re-checked), but CGAL itself still isn't, and installing
+      it would mean pulling in a large C++ dependency stack (Boost,
+      GMP, MPFR) via Homebrew — a real environment change, not a small
+      reversible one, so not done without explicit approval
 - [ ] benches (§13) — predicate fast-path/fallback rate measurement not
       yet built; no performance numbers exist beyond the ad hoc timing
       used to catch and confirm the O(count²) merge bug
