@@ -9,32 +9,39 @@ and hasn't been verified as of the 0.2.0 version-bump commit.
 
 ## Before any release
 
-- [ ] `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D
-      warnings`, `cargo test` (unit/adversarial/differential/regression/doc)
-      all pass
-- [ ] `cargo +1.85 test --all-features` (MSRV) passes
-- [ ] `cargo build --target wasm32-unknown-unknown --release` passes
-- [ ] `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` passes (every public
+- [x] `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D
+      warnings`, `cargo test` (unit/adversarial/differential/regression/doc,
+      261 tests) all pass — re-verified at the `8d88003` version-bump commit
+- [x] `cargo +1.85 test --all-features` (MSRV) passes
+- [x] `cargo build --target wasm32-unknown-unknown --release` passes
+- [x] `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` passes (every public
       item documented — enforced by `#![warn(missing_docs)]` +
       clippy's `-D warnings`)
-- [ ] CI green on the actual push, not just local verification
-- [ ] `cargo package --list` reviewed — no accidental inclusion of
-      scratch/dev-only files
-- [ ] `cargo publish --dry-run` passes
-- [ ] `CHANGELOG.md` has a dated entry for the release, not just
-      `[Unreleased]`
-- [ ] Version bumped in `Cargo.toml` to `0.2.0`, consistent with what's
+- [ ] CI green on the actual push, not just local verification — confirmed
+      for Phase 6A-6D + the CDT bug fix (`d5e755a`, all 9 jobs green); the
+      3 examples/docs/version-bump commits on top of it (`d375f48`,
+      `24e8b03`, `8d88003`) are only locally verified so far, not yet
+      pushed
+- [x] `cargo package --list` reviewed (89 files) — no accidental inclusion
+      of scratch/dev-only files
+- [x] `cargo publish --dry-run` passes (kika v0.2.0, 89 files, 156.5KiB
+      compressed)
+- [x] `CHANGELOG.md` has a dated entry for the release
+      (`[0.2.0] - 2026-08-17`), not just `[Unreleased]`
+- [x] Version bumped in `Cargo.toml` to `0.2.0`, consistent with what's
       actually shipping (triangulation topology, constrained Delaunay,
       and simple-polygon triangulation — see ADR-006 and `tasks/todo.md`)
-- [ ] `README.md`'s Status line and Maturity table match what's actually
+- [x] `README.md`'s Status line and Maturity table match what's actually
       shipping, not aspirational
 
 ## Not required before a release, but should not be silently missing
 
-- [ ] `examples/` build and run (`cargo build --examples`) — regression
-      risk if a public API change breaks an example without CI catching it
-      (examples are not currently run in CI, only built via the normal
-      `cargo build`/`clippy --all-targets` steps, which do compile them)
+- [x] `examples/` build and run (`cargo build --examples`) — 7 examples,
+      including the new `constrained_delaunay`/`polygon_triangulation`
+      (regression risk if a public API change breaks an example without CI
+      catching it — examples are not currently run in CI, only built via
+      the normal `cargo build`/`clippy --all-targets` steps, which do
+      compile them)
 
 ## Explicitly out of scope for 0.2.0
 
