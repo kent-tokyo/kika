@@ -82,6 +82,27 @@ pub enum PolygonTriangulationError {
 /// The applicable invariant instead is: a simple polygon triangulated
 /// with only its own vertices always has exactly `polygon.len() - 2`
 /// triangles.
+///
+/// # Examples
+///
+/// ```
+/// use kika::{Point2, Polygon2, triangulate_polygon};
+///
+/// let square = Polygon2::new(vec![
+///     Point2::new(0.0, 0.0).unwrap(),
+///     Point2::new(4.0, 0.0).unwrap(),
+///     Point2::new(4.0, 4.0).unwrap(),
+///     Point2::new(0.0, 4.0).unwrap(),
+/// ]);
+/// let t = triangulate_polygon(&square).unwrap();
+///
+/// // A simple polygon triangulated with only its own vertices always has
+/// // exactly `polygon.len() - 2` triangles.
+/// assert_eq!(t.len(), square.len() - 2);
+/// ```
+///
+/// See `examples/polygon_triangulation.rs` for a runnable version
+/// (`cargo run --example polygon_triangulation`).
 pub fn triangulate_polygon(
     polygon: &Polygon2,
 ) -> Result<Triangulation2, PolygonTriangulationError> {

@@ -128,6 +128,32 @@ impl ConstrainedTriangulation2 {
 /// whose segment passes exactly through a third, unrelated input vertex
 /// (no single edge can realize that, and this scope does not auto-split
 /// it into sub-constraints).
+///
+/// # Examples
+///
+/// ```
+/// use kika::{Point2, constrained_delaunay2};
+///
+/// let pts = [
+///     Point2::new(0.0, 0.0).unwrap(),
+///     Point2::new(4.0, 0.0).unwrap(),
+///     Point2::new(4.0, 4.0).unwrap(),
+///     Point2::new(0.0, 4.0).unwrap(),
+/// ];
+/// let constraints = [(0, 2)]; // one diagonal of the square
+/// let cdt = constrained_delaunay2(&pts, &constraints).unwrap();
+///
+/// // Every constraint edge must survive into the result.
+/// let constrained_edge_count = cdt
+///     .triangulation()
+///     .edges()
+///     .filter(|&e| cdt.is_constrained(e))
+///     .count();
+/// assert_eq!(constrained_edge_count, constraints.len());
+/// ```
+///
+/// See `examples/constrained_delaunay.rs` for a runnable version
+/// (`cargo run --example constrained_delaunay`).
 pub fn constrained_delaunay2(
     points: &[Point2],
     constraints: &[(usize, usize)],

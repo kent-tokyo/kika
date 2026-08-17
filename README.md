@@ -220,6 +220,51 @@ let c = Point2::new(0.0, 1.0).unwrap();
 assert_eq!(orient2d(a, b, c), Orientation::CounterClockwise);
 ```
 
+Constrained Delaunay — every constraint edge is guaranteed present in the
+result, even where flipping it away would otherwise be the Delaunay choice
+(this exact snippet is doctested — `cargo test --doc` — as
+[`constrained_delaunay2`'s own doc example](src/triangulation/cdt.rs)):
+
+```rust
+use kika::{Point2, constrained_delaunay2};
+
+let pts = [
+    Point2::new(0.0, 0.0).unwrap(),
+    Point2::new(4.0, 0.0).unwrap(),
+    Point2::new(4.0, 4.0).unwrap(),
+    Point2::new(0.0, 4.0).unwrap(),
+];
+let constraints = [(0, 2)]; // one diagonal of the square
+let cdt = constrained_delaunay2(&pts, &constraints).unwrap();
+
+let constrained_edge_count = cdt
+    .triangulation()
+    .edges()
+    .filter(|&e| cdt.is_constrained(e))
+    .count();
+assert_eq!(constrained_edge_count, constraints.len());
+```
+
+Simple-polygon triangulation — no holes, no Steiner points, built on the
+constrained Delaunay above (also doctested, as
+[`triangulate_polygon`'s own doc example](src/triangulation/polygon.rs)):
+
+```rust
+use kika::{Point2, Polygon2, triangulate_polygon};
+
+let square = Polygon2::new(vec![
+    Point2::new(0.0, 0.0).unwrap(),
+    Point2::new(4.0, 0.0).unwrap(),
+    Point2::new(4.0, 4.0).unwrap(),
+    Point2::new(0.0, 4.0).unwrap(),
+]);
+let t = triangulate_polygon(&square).unwrap();
+
+// A simple polygon triangulated with only its own vertices always has
+// exactly `polygon.len() - 2` triangles.
+assert_eq!(t.len(), square.len() - 2);
+```
+
 More, runnable via `cargo run --example <name>`, in [`examples/`](examples/):
 
 * [`orient2d`](examples/orient2d.rs) — the basic turn predicate
@@ -230,6 +275,10 @@ More, runnable via `cargo run --example <name>`, in [`examples/`](examples/):
 * [`delaunay`](examples/delaunay.rs) — 2D Delaunay triangulation
 * [`polygon_validity`](examples/polygon_validity.rs) — `basic_validity` and
   `find_self_intersection`
+* [`constrained_delaunay`](examples/constrained_delaunay.rs) — forcing a
+  specific (possibly non-Delaunay) edge to survive
+* [`polygon_triangulation`](examples/polygon_triangulation.rs) — a
+  non-convex polygon, with triangle-count/CCW/area checks
 
 ## WASM
 
