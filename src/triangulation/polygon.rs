@@ -142,6 +142,17 @@ pub fn triangulate_polygon(
         .map(|f| cdt.triangulation().face_vertices(f))
         .collect();
 
+    // Defensive: re-verify the invariant this function's own doc comment
+    // promises (exactly `polygon.len() - 2` triangles) before returning
+    // `Ok`, rather than trusting the flood fill's result unchecked --
+    // not expected to be reachable given a simple polygon input, but
+    // cheap, and this is exactly the shape of postcondition check that
+    // was missing before `insert_constraint_edge`'s queue-empty bug (see
+    // `cdt.rs`).
+    if faces.len() != n - 2 {
+        return Err(PolygonTriangulationError::ConstraintInsertionFailed);
+    }
+
     Ok(assemble_triangulation(vertex_pos, faces))
 }
 
