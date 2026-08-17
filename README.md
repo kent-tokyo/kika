@@ -12,7 +12,7 @@ robust 2D/3D computational geometry: exact predicates with adaptive/exact
 fallback arithmetic, and — in later phases — triangulation, hull, and
 polygon algorithms built on top of that foundation.
 
-Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.2.0,
+Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.3.0,
 Kika is a robust 2D kernel with exact predicates, 2D convex hull, Delaunay
 triangulation, constrained Delaunay triangulation (narrow scope), and
 simple-polygon triangulation (narrow scope) — see
@@ -307,7 +307,10 @@ above.
 
 Pre-1.0, no semver guarantees. The public `Kernel` trait design described
 in some computational-geometry libraries (CGAL included) is explicitly not
-being finalized yet — see ADR-004.
+being finalized yet — see ADR-004. As of 0.3.0, the public `Result`-style
+error enums (`KikaError`, `CdtError`, `PolygonTriangulationError`) are
+`#[non_exhaustive]`, so a future variant addition won't break a downstream
+`match` that already has a wildcard arm — see `CHANGELOG.md`.
 
 ## Maturity
 
