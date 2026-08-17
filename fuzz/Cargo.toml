@@ -40,3 +40,10 @@ path = "fuzz_targets/triangulation_topology_validator.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "polygon_validity"
+path = "fuzz_targets/polygon_validity.rs"
+test = false
+doc = false
+bench = false

@@ -277,10 +277,17 @@
 
 ## Known gaps, not yet closed (see docs/compatibility.md)
 
-- [ ] The 4 fuzz targets added so far ran clean on short (60-90s) local
-      runs only — no coverage-guided corpus persisted across runs, no
-      nightly/long-duration run performed yet, no `predicate input bytes`/
-      `polygon parser`/`polygon validity` targets from AGENTS.md §12's list
+- [ ] The 5 fuzz targets added so far (`segment_intersection`,
+      `convex_hull`, `delaunay_insert`, `triangulation_topology_validator`,
+      and — added covering the new 0.4.0 code — `polygon_validity`:
+      `Polygon2::basic_validity`/`find_self_intersection`/`relation_to`
+      and `triangulate_polygon`/`triangulate_polygon_with_holes` never
+      panic, and any `Ok` triangulation satisfies its own triangle-count
+      invariant) ran clean on short (60-90s) local runs only — no
+      coverage-guided corpus persisted across runs, no nightly/long-duration
+      run performed yet, no `predicate input bytes`/`polygon parser`
+      targets from AGENTS.md §12's list (`polygon_validity` closes the
+      third item on that list)
 - [ ] wasm32: build verified, but no test execution under wasm32 (needs
       `wasm-bindgen-test`/`wasmtime`) — the "Rust never contracts +/-/*
       into FMA" argument in ADR-001 is a language guarantee, not
