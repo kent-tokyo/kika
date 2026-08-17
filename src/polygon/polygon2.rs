@@ -70,10 +70,13 @@ impl Polygon2 {
     }
 
     /// The edge from vertex `i` to vertex `(i+1) % len()`. Panics if
-    /// `i >= self.len()` or `self.len() < 2` (mirrors slice indexing —
-    /// this is an internal-shape query, not a boundary predicate; callers
-    /// with a possibly-too-short polygon should check `len()` first, the
-    /// same way they'd check before indexing a slice).
+    /// `i >= self.len()` (mirrors slice indexing — this is an
+    /// internal-shape query, not a boundary predicate; callers with a
+    /// possibly-too-short polygon should check `len()` first, the same
+    /// way they'd check before indexing a slice). For `self.len() == 1`,
+    /// `edge(0)` does **not** panic — `(0 + 1) % 1` wraps back to the
+    /// same single vertex, returning the degenerate zero-length segment
+    /// `Segment2::new(v, v)`.
     pub fn edge(&self, i: usize) -> Segment2 {
         let n = self.vertices.len();
         Segment2::new(self.vertices[i], self.vertices[(i + 1) % n])
@@ -264,5 +267,12 @@ mod tests {
         assert_eq!(square_ccw().find_self_intersection(), None);
         let triangle = Polygon2::new(vec![p(0.0, 0.0), p(1.0, 0.0), p(0.5, 1.0)]);
         assert_eq!(triangle.find_self_intersection(), None);
+    }
+
+    #[test]
+    fn edge_on_single_vertex_polygon_is_a_degenerate_zero_length_segment_not_a_panic() {
+        let v = p(3.0, 4.0);
+        let poly = Polygon2::new(vec![v]);
+        assert_eq!(poly.edge(0), Segment2::new(v, v));
     }
 }
