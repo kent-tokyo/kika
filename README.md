@@ -278,11 +278,13 @@ at your option.
 ## Roadmap
 
 Phase 1 (robust predicates), Phase 2 (2D primitives and intersections),
-Phase 3 (2D convex hull), Phase 4 (2D Delaunay triangulation), and Phase 5
+Phase 3 (2D convex hull), Phase 4 (2D Delaunay triangulation), Phase 5
 (certified/exact constructions — an exact `Proper` segment-intersection
-point) are complete. Not yet implemented: constrained Delaunay; polygon/mesh
-Boolean; mesh repair; surface reconstruction; point-cloud processing. See
-[`tasks/todo.md`](tasks/todo.md) for the phased backlog and
-[`docs/release-checklist.md`](docs/release-checklist.md) for what's
-verified vs. still needed before an actual `crates.io`/GitHub release
-(neither has happened yet).
+point), and Phase 6A-6D (triangulation adjacency, narrow-scope constrained
+Delaunay, narrow-scope simple-polygon triangulation) are complete. Not yet
+implemented: polygon/mesh Boolean; exact Voronoi construction; vertex
+deletion; Delaunay refinement; mesh repair; surface reconstruction;
+point-cloud processing. See [`tasks/todo.md`](tasks/todo.md) for the
+phased backlog and [`docs/release-checklist.md`](docs/release-checklist.md)
+for what's verified vs. still needed before an actual `crates.io`/GitHub
+release (neither has happened yet).

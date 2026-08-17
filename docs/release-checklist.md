@@ -22,9 +22,11 @@ how much of this checklist is green.
 - [ ] `CHANGELOG.md` has a dated entry for the release, not just
       `[Unreleased]`
 - [ ] Version bumped in `Cargo.toml`, consistent with what actually
-      shipped (0.1.0 for today's predicate/intersection/hull/Delaunay
-      scope; 0.2.0 once triangulation topology + constrained Delaunay +
-      polygon triangulation land — see ADR-006 and `tasks/todo.md`)
+      shipped (0.1.0 for the predicate/intersection/hull/Delaunay scope;
+      0.2.0-worthy scope — triangulation topology, constrained Delaunay,
+      and simple-polygon triangulation — has now landed as of Phase 6D,
+      see ADR-006 and `tasks/todo.md`, but the version bump itself is a
+      release decision, not done automatically as each phase lands)
 - [ ] `README.md`'s Status line and Maturity table match what's actually
       shipping, not aspirational
 
