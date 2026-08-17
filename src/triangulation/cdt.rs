@@ -312,19 +312,56 @@ fn edge_exists(faces: &[[VertexId; 3]], u: VertexId, v: VertexId) -> bool {
     faces.iter().any(|f| f.contains(&u) && f.contains(&v))
 }
 
+/// Every unique undirected *interior* edge (both incident faces
+/// present), excluding anything in `constrained_pairs`, as `(u, v, fa,
+/// fb)` — `u`/`v` the canonical vertex pair, `fa`/`fb` its two incident
+/// faces. Shared scan behind [`crossing_edges`] and
+/// [`find_first_bad_unconstrained_edge`], which differ only in what they
+/// do with each edge once found (checking whether it crosses a given
+/// segment, vs. whether it's locally Delaunay).
+///
+/// `constrained_pairs` (edges already realized for an earlier constraint
+/// in this same call) are never yielded, even though the upfront
+/// pairwise non-crossing validation in [`constrained_delaunay2`] should
+/// already make excluding them from crossing-edge candidates
+/// geometrically unreachable: two constraint segments that don't
+/// properly cross each other can't have one's realized edge properly
+/// crossed by the other's insertion path either. This filter is defense
+/// in depth against that argument being wrong (or violated by a future
+/// edit), not a case this scope expects to hit — and is simply correct
+/// for the local-Delaunay-restoration use, which must never touch a
+/// constrained edge regardless.
+fn unconstrained_interior_edges(
+    faces: &[[VertexId; 3]],
+    face_neighbors: &[[Option<FaceId>; 3]],
+    constrained_pairs: &HashSet<(VertexId, VertexId)>,
+) -> Vec<(VertexId, VertexId, FaceId, FaceId)> {
+    let mut found = Vec::new();
+    let mut seen: HashSet<(VertexId, VertexId)> = HashSet::new();
+    for (i, face) in faces.iter().enumerate() {
+        let fa = FaceId::new(i as u32);
+        for k in 0..3 {
+            let Some(fb) = face_neighbors[i][k] else {
+                continue;
+            };
+            let (a, b) = (face[(k + 1) % 3], face[(k + 2) % 3]);
+            let key = canon(a, b);
+            if !seen.insert(key) {
+                continue;
+            }
+            if constrained_pairs.contains(&key) {
+                continue;
+            }
+            found.push((key.0, key.1, fa, fb));
+        }
+    }
+    found
+}
+
 /// Every currently-existing triangulation edge that properly crosses
 /// segment `(u, v)`, as canonical vertex pairs (not face pairs — a
 /// vertex pair stays valid to re-look-up after other flips change
 /// adjacency, where a captured `FaceId` pair could go stale).
-///
-/// `constrained_pairs` (edges already realized for an earlier constraint
-/// in this same call) are never returned as candidates, even though the
-/// upfront pairwise non-crossing validation in [`constrained_delaunay2`]
-/// should already make this geometrically unreachable: two constraint
-/// segments that don't properly cross each other can't have one's
-/// realized edge properly crossed by the other's insertion path either.
-/// This filter is defense in depth against that argument being wrong
-/// (or violated by a future edit), not a case this scope expects to hit.
 fn crossing_edges(
     faces: &[[VertexId; 3]],
     face_neighbors: &[[Option<FaceId>; 3]],
@@ -334,28 +371,14 @@ fn crossing_edges(
     v: VertexId,
 ) -> Vec<(VertexId, VertexId)> {
     let seg_uv = Segment2::new(vertex_pos[u.raw() as usize], vertex_pos[v.raw() as usize]);
-    let mut found = Vec::new();
-    let mut seen: HashSet<(VertexId, VertexId)> = HashSet::new();
-    for (i, face) in faces.iter().enumerate() {
-        for k in 0..3 {
-            if face_neighbors[i][k].is_none() {
-                continue;
-            }
-            let (a, b) = (face[(k + 1) % 3], face[(k + 2) % 3]);
-            let key = canon(a, b);
-            if !seen.insert(key) {
-                continue;
-            }
-            if constrained_pairs.contains(&key) {
-                continue;
-            }
+    unconstrained_interior_edges(faces, face_neighbors, constrained_pairs)
+        .into_iter()
+        .filter_map(|(a, b, _fa, _fb)| {
             let seg_ab = Segment2::new(vertex_pos[a.raw() as usize], vertex_pos[b.raw() as usize]);
-            if segment_intersection_kind(seg_uv, seg_ab) == SegmentIntersectionKind::Proper {
-                found.push(key);
-            }
-        }
-    }
-    found
+            (segment_intersection_kind(seg_uv, seg_ab) == SegmentIntersectionKind::Proper)
+                .then_some((a, b))
+        })
+        .collect()
 }
 
 /// The two faces currently incident to the (still-existing) edge `(a,
@@ -695,27 +718,11 @@ fn find_first_bad_unconstrained_edge(
     vertex_pos: &[Point2],
     constrained_pairs: &HashSet<(VertexId, VertexId)>,
 ) -> Option<(FaceId, FaceId)> {
-    let mut seen: HashSet<(VertexId, VertexId)> = HashSet::new();
-    for (i, face) in faces.iter().enumerate() {
-        let fa = FaceId::new(i as u32);
-        for k in 0..3 {
-            let Some(fb) = face_neighbors[i][k] else {
-                continue;
-            };
-            let (a, b) = (face[(k + 1) % 3], face[(k + 2) % 3]);
-            let key = canon(a, b);
-            if !seen.insert(key) {
-                continue;
-            }
-            if constrained_pairs.contains(&key) {
-                continue;
-            }
-            if !is_locally_delaunay(faces, vertex_pos, fa, fb) {
-                return Some((fa, fb));
-            }
-        }
-    }
-    None
+    unconstrained_interior_edges(faces, face_neighbors, constrained_pairs)
+        .into_iter()
+        .find_map(|(_a, _b, fa, fb)| {
+            (!is_locally_delaunay(faces, vertex_pos, fa, fb)).then_some((fa, fb))
+        })
 }
 
 /// Checks `t`'s topology the same way [`super::delaunay2::Triangulation2::validate_topology`]
