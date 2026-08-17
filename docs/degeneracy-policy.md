@@ -73,6 +73,7 @@ deviation from a plain PSLG-with-Steiner-points CDT is a typed
 
 | Case | Behavior |
 |---|---|
+| `points` has fewer than 3 elements, or is exactly collinear (`delaunay2`'s own degenerate-input case) | With an empty `constraints` list: `Ok`, wrapping the same empty `Triangulation2` `delaunay2` itself would return (0 triangles, 0 vertices) — matches `delaunay2`'s "degenerate is a valid, representable value" policy. With a non-empty `constraints` list: `CdtError::DegeneratePointSet` — no triangulation face exists for any constraint edge to become part of. See `tests/regression/cdt.rs`. |
 | Two distinct constraint segments share exactly one endpoint | Allowed — not a crossing, checked exhaustively up front via the same `segment_intersection_kind` used everywhere else in the crate. See `shared_endpoint_constraints_are_allowed`. |
 | Two distinct constraint segments properly cross (share a single interior point, endpoint of neither) | Rejected up front: `CdtError::ProperlyCrossingConstraints`. Automatic intersection-point generation is out of scope for this narrow version — see ADR-004's Phase 6 re-evaluation. |
 | Two distinct constraint segments are collinear and overlap along a sub-segment | Rejected up front: `CdtError::CollinearOverlappingConstraints`. |

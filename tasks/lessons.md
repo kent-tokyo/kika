@@ -279,3 +279,25 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   a passing regression test for a rewrite's edge case is only evidence
   if you've watched it fail against the pre-fix code — otherwise it may
   be validating that the fix exists, not that it was necessary.
+- Real bug, found by review of `constrained_delaunay2` rather than by new
+  test-writing: it called `delaunay2(points)` and looked up every input
+  point's `VertexId` by coordinate, ending in `.expect("every input point
+  has a VertexId: duplicates were already rejected")`. That message
+  states one precondition (no duplicates) but the code actually depended
+  on a second, unstated one inherited from `delaunay2`'s own documented
+  contract: a non-degenerate point set. `delaunay2` returns an *empty*
+  `Triangulation2` for fewer than 3 points or an all-collinear set, by
+  design, not an error — so the `.expect` panicked for every point
+  whenever that held, even with zero constraints (a single point was
+  enough). Fixed by checking `triangulation.is_empty()` right after the
+  `delaunay2` call, before the coordinate lookup ever runs: `Ok` wrapping
+  the same empty triangulation for an empty `constraints` list, a new
+  `CdtError::DegeneratePointSet` otherwise. Lesson: an `.expect` message
+  naming one precondition is only as trustworthy as *every* precondition
+  the surrounding code actually relies on being enumerated — this one
+  silently inherited a second precondition from a callee's own
+  carefully-documented return-value contract (`delaunay2`'s doc comment,
+  `docs/degeneracy-policy.md`) that was never cross-checked against this
+  caller. Confirmed by writing the regression tests against the unfixed
+  code first and watching all 5 panic at the exact `.expect` line before
+  applying the fix. See `tests/regression/cdt.rs`.

@@ -32,8 +32,34 @@
 //! the correctness argument (a flip only changes the existence of the
 //! popped edge and its replacement, so no other edge's crossing status
 //! can change -- the queue never needs a full rescan).
+//!
+//! ## Found: `constrained_delaunay2` panicked on any degenerate point
+//! set, even with zero constraints
+//!
+//! `constrained_delaunay2` called `delaunay2(points)` and then mapped
+//! every input point to its `VertexId` by an exhaustive coordinate
+//! search ending in `.expect("every input point has a VertexId:
+//! duplicates were already rejected")`. `delaunay2` returns an *empty*
+//! `Triangulation2` (0 vertices) for its own documented degenerate-input
+//! policy (fewer than 3 points, or all points collinear) rather than an
+//! error -- so that `.expect` panicked for every point in `points`
+//! whenever the point set was degenerate, even when `constraints` was
+//! empty and there was nothing at all for a constraint to conflict with.
+//! Reproduced with as little as a single point and zero constraints --
+//! the smallest possible triggering input, well short of anything
+//! involving `constraints`.
+//!
+//! Fixed by checking `triangulation.is_empty()` immediately after the
+//! `delaunay2` call, before the coordinate-search closure is ever
+//! called: an empty `constraints` list now returns `Ok` wrapping that
+//! same empty triangulation (matching `delaunay2`'s own "degenerate is a
+//! valid, representable value" policy), and a non-empty one returns the
+//! new `CdtError::DegeneratePointSet` (no triangulation face exists for
+//! any constraint to become an edge of). See
+//! `src/triangulation/cdt.rs`'s `constrained_delaunay2` and
+//! `docs/degeneracy-policy.md`'s CDT table.
 
-use kika::{Point2, constrained_delaunay2, validate_cdt_topology};
+use kika::{CdtError, Point2, constrained_delaunay2, validate_cdt_topology};
 
 fn xorshift(state: &mut u64) -> u64 {
     *state ^= *state << 13;
@@ -65,4 +91,24 @@ fn long_constraint_in_a_300_point_cloud_does_not_oscillate() {
     // converging.
     let cdt = constrained_delaunay2(&pts, &[(0, 15)]).expect("must not oscillate/fail");
     assert!(validate_cdt_topology(&cdt).is_empty());
+}
+
+#[test]
+fn single_point_no_constraints_does_not_panic() {
+    let pts = [Point2::new(0.0, 0.0).unwrap()];
+    let cdt = constrained_delaunay2(&pts, &[]).expect("must not panic");
+    assert!(cdt.triangulation().is_empty());
+    assert!(validate_cdt_topology(&cdt).is_empty());
+}
+
+#[test]
+fn collinear_points_with_a_constraint_is_a_typed_error_not_a_panic() {
+    let pts = [
+        Point2::new(0.0, 0.0).unwrap(),
+        Point2::new(1.0, 0.0).unwrap(),
+    ];
+    assert_eq!(
+        constrained_delaunay2(&pts, &[(0, 1)]),
+        Err(CdtError::DegeneratePointSet)
+    );
 }

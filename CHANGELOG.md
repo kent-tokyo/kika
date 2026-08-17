@@ -5,6 +5,20 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `constrained_delaunay2` panicked (via an internal `.expect(...)`) on any
+  degenerate point set — fewer than 3 points, or all points exactly
+  collinear — even with an empty `constraints` list, because `delaunay2`
+  returns an *empty* `Triangulation2` for that input by its own documented
+  policy, leaving nothing for the coordinate-to-`VertexId` lookup to find.
+  Fixed by checking for an empty triangulation immediately after the
+  `delaunay2` call: an empty `constraints` list now returns `Ok` wrapping
+  that same empty triangulation; a non-empty one returns the new
+  `CdtError::DegeneratePointSet` (no triangulation face exists for a
+  constraint to become an edge of). See `tests/regression/cdt.rs` and
+  `docs/degeneracy-policy.md`'s CDT table.
+
 ## [0.2.0] - 2026-08-17
 
 A robust 2D kernel with exact predicates, 2D convex hull, Delaunay

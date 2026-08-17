@@ -48,6 +48,14 @@ pub enum CdtError {
     /// Two distinct constraint segments are collinear and overlap along a
     /// sub-segment (more than a shared endpoint).
     CollinearOverlappingConstraints,
+    /// `points` has fewer than 3 elements, or every point in it is exactly
+    /// collinear — [`delaunay2`]'s own documented degenerate-input policy
+    /// (see its doc comment and `docs/degeneracy-policy.md`): no
+    /// triangulation face exists at all, so a non-empty `constraints` list
+    /// can never be realized as an edge (there is nothing to flip). An
+    /// *empty* `constraints` list is not an error for this same input —
+    /// see [`constrained_delaunay2`]'s doc comment.
+    DegeneratePointSet,
     /// A constraint could not be realized by edge flipping within the
     /// bounded number of attempts. Covers both a genuine algorithm
     /// exhaustion (see [`constrained_delaunay2`]'s doc comment on the
@@ -96,16 +104,32 @@ impl ConstrainedTriangulation2 {
 /// for this scope's expected input sizes, not optimized for thousands of
 /// constraints). `points` must contain no duplicate coordinates (checked
 /// via the same `dedup_sorted` the unconstrained `delaunay2` already
-/// uses) — a duplicate would make a constraint index ambiguous.
+/// uses) — a duplicate would make a constraint index ambiguous. `points`
+/// may itself be degenerate (fewer than 3 elements, or exactly collinear)
+/// — see "Degenerate point sets" below.
+///
+/// # Degenerate point sets
+///
+/// If `points` has fewer than 3 elements, or every point in it is exactly
+/// collinear, [`delaunay2`] itself returns an empty [`Triangulation2`]
+/// (0 faces, 0 vertices) rather than an error — see its own doc comment
+/// and `docs/degeneracy-policy.md`. `constrained_delaunay2` matches that
+/// policy: with an empty `constraints` list, it returns `Ok` wrapping
+/// that same empty triangulation (0 triangles, 0 vertices, no
+/// constrained edges). With a non-empty `constraints` list, no
+/// triangulation face exists for any constraint to become an edge of, so
+/// it returns [`CdtError::DegeneratePointSet`] instead.
 ///
 /// # Algorithm
 ///
 /// 1. Validate every precondition above before touching any triangulation
 ///    (fail fast, never partially build then discover a problem).
 /// 2. Build the ordinary (unconstrained) Delaunay triangulation of
-///    `points` via [`delaunay2`], then map each input index to its
-///    [`VertexId`] by coordinate — `delaunay2` returns vertices in its own
-///    canonical sorted order, not input order.
+///    `points` via [`delaunay2`]. If it is empty (see "Degenerate point
+///    sets" above), return immediately — `Ok` for no constraints,
+///    [`CdtError::DegeneratePointSet`] otherwise. Otherwise, map each
+///    input index to its [`VertexId`] by coordinate — `delaunay2` returns
+///    vertices in its own canonical sorted order, not input order.
 /// 3. For each constraint, if it is not already a triangulation edge,
 ///    realize it via `insert_constraint_edge`'s persistent FIFO queue of
 ///    crossing edges (via [`segment_intersection_kind`], reusing the same
@@ -197,6 +221,27 @@ pub fn constrained_delaunay2(
     }
 
     let triangulation = delaunay2(points);
+
+    // `delaunay2` returns an empty triangulation (0 faces, 0 vertices) when
+    // `points` has fewer than 3 elements or is exactly collinear -- its own
+    // documented degenerate-input policy. No face exists in that case, so
+    // `vertex_of_coord` below has nothing to map any point onto (it would
+    // panic for every point in `points`), and no constraint edge could ever
+    // be realized either -- both handled explicitly here, before
+    // `vertex_of_coord` is ever called.
+    if triangulation.is_empty() {
+        return if constraints.is_empty() {
+            // No constraints to realize either: matches `delaunay2`'s own
+            // "degenerate is a valid, representable value" policy -- an
+            // empty result, not an error.
+            Ok(ConstrainedTriangulation2 {
+                triangulation,
+                constrained_edges: HashSet::new(),
+            })
+        } else {
+            Err(CdtError::DegeneratePointSet)
+        };
+    }
 
     let vertex_of_coord = |p: Point2| -> VertexId {
         triangulation
@@ -768,6 +813,49 @@ mod tests {
         assert_eq!(
             constrained_delaunay2(&pts, &[(0, 2), (1, 3)]),
             Err(CdtError::CollinearOverlappingConstraints)
+        );
+    }
+
+    #[test]
+    fn single_point_no_constraints_is_empty_ok() {
+        let pts = [p(0.0, 0.0)];
+        let cdt = constrained_delaunay2(&pts, &[]).unwrap();
+        assert!(cdt.triangulation().is_empty());
+        assert_eq!(cdt.triangulation().vertices().count(), 0);
+        assert!(validate_cdt_topology(&cdt).is_empty());
+    }
+
+    #[test]
+    fn two_collinear_points_no_constraints_is_empty_ok() {
+        let pts = [p(0.0, 0.0), p(1.0, 0.0)];
+        let cdt = constrained_delaunay2(&pts, &[]).unwrap();
+        assert!(cdt.triangulation().is_empty());
+        assert!(validate_cdt_topology(&cdt).is_empty());
+    }
+
+    #[test]
+    fn four_collinear_points_no_constraints_is_empty_ok() {
+        let pts = [p(0.0, 0.0), p(1.0, 0.0), p(2.0, 0.0), p(3.0, 0.0)];
+        let cdt = constrained_delaunay2(&pts, &[]).unwrap();
+        assert!(cdt.triangulation().is_empty());
+        assert!(validate_cdt_topology(&cdt).is_empty());
+    }
+
+    #[test]
+    fn two_collinear_points_with_constraint_is_degenerate_point_set() {
+        let pts = [p(0.0, 0.0), p(1.0, 0.0)];
+        assert_eq!(
+            constrained_delaunay2(&pts, &[(0, 1)]),
+            Err(CdtError::DegeneratePointSet)
+        );
+    }
+
+    #[test]
+    fn four_collinear_points_with_constraint_is_degenerate_point_set() {
+        let pts = [p(0.0, 0.0), p(1.0, 0.0), p(2.0, 0.0), p(3.0, 0.0)];
+        assert_eq!(
+            constrained_delaunay2(&pts, &[(0, 3)]),
+            Err(CdtError::DegeneratePointSet)
         );
     }
 

@@ -157,8 +157,9 @@ in pure Rust, that's what Phase 1 of Kika is.
   Phase 6 re-evaluation predicted CDT needs **no new construction**, and
   the implementation confirms it: not one new coordinate is ever built.
   Constraint recovery and Delaunay restoration are each bounded (never an
-  unbounded loop); `CdtError` reports crossing/collinear constraints and
-  algorithm exhaustion as typed errors, never a panic.
+  unbounded loop); `CdtError` reports crossing/collinear constraints,
+  algorithm exhaustion, and a degenerate point set (fewer than 3 points, or
+  all collinear) as typed errors, never a panic.
 * `triangulate_polygon` — simple-polygon triangulation (Phase 6D), built
   on Phase 6C's CDT: constrain every polygon edge, then discard the
   concave-pocket faces outside the polygon (for a non-convex input) via a
