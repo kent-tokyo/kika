@@ -77,18 +77,30 @@ impl Segment2 {
         // whichever axis actually varies is sufficient to determine
         // betweenness (see src/primitives/segment2.rs module tests for
         // the differential coverage backing this).
-        let within = if self.a.x() != self.b.x() {
-            let (lo, hi) = (self.a.x().min(self.b.x()), self.a.x().max(self.b.x()));
-            lo <= p.x() && p.x() <= hi
-        } else {
-            let (lo, hi) = (self.a.y().min(self.b.y()), self.a.y().max(self.b.y()));
-            lo <= p.y() && p.y() <= hi
-        };
-        if within {
+        if point_in_collinear_range(self.a, self.b, p) {
             PointSegmentRelation::Interior
         } else {
             PointSegmentRelation::NotOnSegment
         }
+    }
+}
+
+/// `true` iff `p` lies within the axis-aligned range spanned by `a` and
+/// `b`, projected onto whichever axis actually varies (`a.x() != b.x()`
+/// picks x, else y). Assumes `p` is already known collinear with `a` and
+/// `b` (checked by the caller via `orient2d`) and that `a != b` — a pure
+/// range comparison, no predicate call. Shared by [`Segment2::relation_to`]
+/// and `intersections::segment2::classify`'s endpoint checks, which
+/// already know collinearity holds and would otherwise redundantly
+/// re-verify it by calling `relation_to` (which starts with its own
+/// `orient2d` check).
+pub(crate) fn point_in_collinear_range(a: Point2, b: Point2, p: Point2) -> bool {
+    if a.x() != b.x() {
+        let (lo, hi) = (a.x().min(b.x()), a.x().max(b.x()));
+        lo <= p.x() && p.x() <= hi
+    } else {
+        let (lo, hi) = (a.y().min(b.y()), a.y().max(b.y()));
+        lo <= p.y() && p.y() <= hi
     }
 }
 

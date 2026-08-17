@@ -1,5 +1,5 @@
 use crate::predicates::{Orientation, line_intersection, orient2d};
-use crate::primitives::{Aabb2, Point2, PointSegmentRelation, Segment2};
+use crate::primitives::{Aabb2, Point2, PointSegmentRelation, Segment2, point_in_collinear_range};
 
 /// The kind of intersection between two 2D segments, per AGENTS.md §9
 /// Phase 2's required classification. This is the *predicate* side
@@ -113,16 +113,20 @@ fn classify(s1: Segment2, s2: Segment2) -> Classification {
         return Classification::Proper;
     }
 
-    if d1 == Orientation::Collinear && s2.relation_to(a) != PointSegmentRelation::NotOnSegment {
+    // `d1`/`d2`/`d3`/`d4` already establish collinearity where checked
+    // below, so `point_in_collinear_range` (a pure range comparison) is
+    // used directly instead of `relation_to`, which would redundantly
+    // re-verify collinearity via its own `orient2d` call.
+    if d1 == Orientation::Collinear && point_in_collinear_range(c, d, a) {
         return Classification::EndpointTouch(a);
     }
-    if d2 == Orientation::Collinear && s2.relation_to(b) != PointSegmentRelation::NotOnSegment {
+    if d2 == Orientation::Collinear && point_in_collinear_range(c, d, b) {
         return Classification::EndpointTouch(b);
     }
-    if d3 == Orientation::Collinear && s1.relation_to(c) != PointSegmentRelation::NotOnSegment {
+    if d3 == Orientation::Collinear && point_in_collinear_range(a, b, c) {
         return Classification::EndpointTouch(c);
     }
-    if d4 == Orientation::Collinear && s1.relation_to(d) != PointSegmentRelation::NotOnSegment {
+    if d4 == Orientation::Collinear && point_in_collinear_range(a, b, d) {
         return Classification::EndpointTouch(d);
     }
 

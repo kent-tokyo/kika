@@ -12,6 +12,7 @@ pub use aabb2::Aabb2;
 pub use aabb3::Aabb3;
 pub use point2::Point2;
 pub use point3::Point3;
+pub(crate) use segment2::point_in_collinear_range;
 pub use segment2::{PointSegmentRelation, Segment2};
 pub use triangle2::{PointTriangleRelation, Triangle2};
 pub use triangle3::Triangle3;
