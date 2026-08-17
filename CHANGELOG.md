@@ -5,6 +5,52 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-17
+
+A robustness/compatibility release following a general bug-check and
+refactoring pass over 0.2.0: two real bugs fixed (one of them the reason
+this is 0.3.0 and not 0.2.1 — see Changed below), a couple of doc-accuracy
+and defensive-check gaps closed, and several purely-internal
+deduplications. No new features.
+
+### Changed
+
+- **Breaking:** `KikaError`, `CdtError`, `PolygonTriangulationError`, and
+  `TopologyError` (the latter `#[doc(hidden)]`, not an advertised API
+  commitment, but still technically `pub`) are now `#[non_exhaustive]`.
+  Any downstream `match` on these enums without a wildcard (`_`) arm will
+  no longer compile. This is what forces 0.3.0 rather than 0.2.1: the
+  `CdtError::DegeneratePointSet` addition below is itself a variant
+  addition to an enum that was *not* `#[non_exhaustive]` in 0.2.0, which
+  is already a breaking change for any 0.2.0 consumer with an exhaustive
+  match — marking these enums `#[non_exhaustive]` now is the fix that
+  prevents the *next* variant addition from repeating that break. Applied
+  only to `Result`-style "why did this fallible operation fail" enums
+  (all four either implement/are intended to implement
+  `core::error::Error`, or serve the equivalent diagnostic role); enums
+  that classify a mathematically or geometrically closed set of outcomes
+  (`Sign`, `Orientation`, `PointSegmentRelation`, `PointTriangleRelation`,
+  `SegmentIntersectionKind`, `SegmentIntersection2`,
+  `PolygonBasicValidity`, `HullBoundaryPoints`) were deliberately left
+  exhaustive — none of them are `Result` error types, and their variant
+  sets are complete by construction, not expected to grow.
+
+- **Internal, no public API change:** shared the 3×3 cofactor
+  determinant-with-precancellation-bound pattern (`det3_with_precancel_bound`/
+  `det3_exact`) and the 4×-duplicated `negate()` helper across
+  `orient3d.rs`/`incircle.rs`/`insphere.rs`/`line_intersection.rs` into
+  `predicates::expansion` (~130 duplicated lines removed); extracted
+  `point_in_collinear_range` (shared by `Segment2::relation_to` and
+  segment-intersection classification) and removed redundant `orient2d`
+  recomputation in `classify()`'s `EndpointTouch` checks; extracted
+  `validate_constraints` from `constrained_delaunay2`; consolidated
+  `cdt.rs`'s four separate face-scanning loops (`edge_exists`,
+  `crossing_edges`, `adjacent_faces_of_edge`,
+  `find_first_bad_unconstrained_edge`) onto one shared scan. All verified
+  behavior-preserving by the existing test suite; the face-scan
+  consolidation additionally verified via bit-identical measured flip
+  counts before/after.
+
 ### Fixed
 
 - `constrained_delaunay2` panicked (via an internal `.expect(...)`) on any
@@ -35,6 +81,28 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   the same `BigRational` oracle used elsewhere) up through `~3.3e150`. No
   public API change. See `docs/numerical-model.md`'s Phase 5 section and
   `tasks/lessons.md`.
+
+- `Polygon2::edge`'s doc comment claimed it panics when `self.len() < 2`;
+  false for `len() == 1`, where `edge(0)` wraps (`(0+1) % 1 == 0`) and
+  returns a degenerate zero-length `Segment2` instead of panicking (the
+  real panic condition is only `i >= self.len()`, including the `len()
+  == 0` case via plain indexing). Doc-only fix, no behavior change — the
+  only caller (`find_self_intersection`) already used statically-safe
+  indices. See `docs/degeneracy-policy.md`.
+
+### Added
+
+- Defensive postcondition check in `triangulate_polygon`: returns
+  `PolygonTriangulationError::ConstraintInsertionFailed` if the built
+  triangle count doesn't match the documented `polygon.len() - 2`
+  guarantee, instead of trusting the loop's result unchecked. No failure
+  found triggering this in stress testing — a safety net, not a fix for
+  an observed bug.
+- Doc comment on `restore_unconstrained_delaunay` explaining why its
+  rescan loop terminates (paraboloid-lift / monotonic-volume argument for
+  Lawson flips), plus a new test exercising it in the
+  multi-constraint-in-one-call mode `triangulate_polygon` actually uses
+  (previously only single-constraint calls were covered).
 
 ## [0.2.0] - 2026-08-17
 
