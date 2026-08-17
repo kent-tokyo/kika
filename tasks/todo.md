@@ -1,5 +1,29 @@
 # Todo
 
+## Done (wasm32 test execution, not just build)
+
+- [x] Added `wasm-bindgen-test` as a `wasm32`-only dev-dependency
+      (`Cargo.toml`'s `[target.'cfg(target_arch = "wasm32")'.dev-dependencies]`
+      — never propagates to downstream crates or the normal build,
+      matching the existing `num-bigint`/`num-rational` dev-only
+      isolation, ADR-005). `tests/wasm.rs`: 10 load-bearing
+      `#[wasm_bindgen_test]` cases (one per major subsystem — see
+      `docs/compatibility.md` for the exact list), verified passing
+      under `wasm-pack test --node --release` (Node.js), not just
+      `cargo build --target wasm32-unknown-unknown`. New independent CI
+      job `wasm-test-node` (the existing build-only `wasm` job is
+      unchanged, not replaced).
+- [x] Found and fixed a real bug in the new test itself while writing
+      it, not a wasm32 discrepancy: `insphere_basic_case`'s first draft
+      assumed "outside the sphere" always means `Sign::Negative`, but
+      `insphere`'s sign convention is orientation-dependent on the
+      a/b/c/d vertex order (its own doc comment: swapping any two flips
+      the sign) — confirmed by reproducing the exact same result
+      natively before touching the test, ruling out a platform
+      difference. See `tests/wasm.rs`'s comment on that test.
+- [x] `docs/compatibility.md` and this file updated from "builds, not
+      executed" to "executed under Node.js" for wasm32.
+
 ## Done (0.4.0: polygon triangulation with holes — implemented, not yet released)
 
 - [x] `Polygon2::relation_to`/`PointPolygonRelation`: exact point-in-polygon
@@ -288,10 +312,6 @@
       run performed yet, no `predicate input bytes`/`polygon parser`
       targets from AGENTS.md §12's list (`polygon_validity` closes the
       third item on that list)
-- [ ] wasm32: build verified, but no test execution under wasm32 (needs
-      `wasm-bindgen-test`/`wasmtime`) — the "Rust never contracts +/-/*
-      into FMA" argument in ADR-001 is a language guarantee, not
-      re-verified empirically on this target
 - [ ] `incircle`/`insphere` safe-magnitude-range bounds
       (`docs/numerical-model.md`) are empirically-checked, not tightly
       derived on the floor side

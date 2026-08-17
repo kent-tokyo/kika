@@ -25,13 +25,25 @@ deferred.
   jobs green) — CI-confirmed, not just locally verified.
 * `wasm32-unknown-unknown` — library **builds** successfully, verified
   both locally and in CI (`cargo build --target wasm32-unknown-unknown
-  --lib`). Tests do **not** run under wasm32 — that needs a WASM test
-  runner (`wasm-bindgen-test` + a JS engine, or `wasmtime`), not set up
-  in Phase 1. This matters specifically for the exact-arithmetic core's
-  correctness claims (ADR-001's argument that Rust never contracts
-  `+`/`-`/`*` into FMA is a language-level guarantee, not empirically
-  re-verified under wasm32) — a known gap, not silently assumed fine;
-  see `tasks/todo.md`.
+  --lib`, the `wasm` job). As of this session, also **executed**, not
+  just built: `tests/wasm.rs` (`wasm-bindgen-test`, a `wasm32`-only
+  dev-dependency — see `Cargo.toml`'s
+  `[target.'cfg(target_arch = "wasm32")'.dev-dependencies]`) runs 10
+  load-bearing cases — one per major subsystem (`orient2d`/`orient3d`
+  sign, `incircle`/`insphere` basic cases, `segment_intersection`
+  finiteness, the 0.3.0 extreme/mixed-magnitude `line_intersection`
+  regression case, `delaunay2` triangle count/topology, degenerate CDT
+  as a typed error not a panic, `triangulate_polygon`/
+  `triangulate_polygon_with_holes` happy paths) — under an actual Node.js
+  runtime via `wasm-pack test --node --release`, both locally and in CI
+  (the separate `wasm-test-node` job; the existing `wasm` build-only job
+  is unchanged). Not a port of the full 274-test native suite — deliberately
+  small, to catch wasm32-*specific* codegen/execution divergence, not to
+  duplicate coverage the native suite already has exhaustively. This
+  closes the gap that mattered specifically for the exact-arithmetic
+  core's correctness claims (ADR-001's argument that Rust never
+  contracts `+`/`-`/`*` into FMA is a language-level guarantee, previously
+  not empirically re-verified under wasm32, now is).
 
 ## MSRV
 

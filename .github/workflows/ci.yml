@@ -55,6 +55,19 @@ jobs:
           targets: wasm32-unknown-unknown
       - run: cargo build --target wasm32-unknown-unknown --lib
 
+  wasm-test-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: cargo install wasm-pack --version 0.13.1 --locked
+      - run: wasm-pack test --node --release
+
   doc:
     runs-on: ubuntu-latest
     steps:
