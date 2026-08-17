@@ -1,5 +1,42 @@
 # Todo
 
+## Done (0.3.0: bug-check-and-refactoring pass + release)
+
+- [x] `constrained_delaunay2` panicked on any degenerate point set (fewer
+      than 3 points, or all collinear), even with zero constraints — fixed
+      with the new `CdtError::DegeneratePointSet`. See `tests/regression/cdt.rs`
+      and the `.expect`-precondition-enumeration lesson in `lessons.md`.
+- [x] `predicates::line_intersection` could return non-finite (`NaN`) at
+      extreme (~5.6e102+) or mixed-magnitude coordinates — fixed via exact
+      power-of-two rescaling, verified correctly rounded to ~3.3e150.
+- [x] `triangulate_polygon` defensive postcondition check (triangle count
+      matches `polygon.len() - 2` before returning `Ok`); `Polygon2::edge`
+      doc-accuracy fix (`len() == 1` doesn't panic); documented
+      `restore_unconstrained_delaunay`'s termination argument plus a
+      multi-constraint-mode test (matching `triangulate_polygon`'s actual
+      usage, previously only single-constraint-covered).
+- [x] Internal refactors, no public API/behavior change: shared
+      `det3_with_precancel_bound`/`det3_exact`/`negate` across 4 predicate
+      files (~130 duplicated lines); extracted `point_in_collinear_range`;
+      extracted `validate_constraints` from `constrained_delaunay2`;
+      consolidated `cdt.rs`'s 4 face-scanning loops onto one shared scan.
+      Considered and *reverted* a 5th refactor (FIFO-counter struct
+      consolidation) after the actual diff showed it added more code than
+      it removed — see `lessons.md` if this comes up again.
+- [x] `#[non_exhaustive]` added to `KikaError`/`CdtError`/
+      `PolygonTriangulationError`/`TopologyError` (Result-style error
+      enums only — closed classification enums like `Sign`/`Orientation`
+      left exhaustive). This is why the release is 0.3.0, not 0.2.1 — see
+      `lessons.md`'s "which public enums get `#[non_exhaustive]`" entry
+      for the criterion to reuse next time a public enum is added.
+- [x] **0.3.0 published**: `cargo publish` (via the repo's `publish.yml`
+      `workflow_dispatch`), confirmed live on crates.io, verified with a
+      fresh fixture crate built against the published version (including
+      confirming `#[non_exhaustive]` actually rejects a non-wildcard
+      `match` from outside the crate), docs.rs build green, `v0.3.0` tag
+      pushed at the published commit, GitHub Release published, all SHAs
+      (local `main`/`origin/main`/peeled tag) confirmed matching.
+
 ## Done (Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6A + Phase 6B + Phase 6C + Phase 6D)
 
 - [x] Phase 0: name-collision check, ecosystem survey, ADR-001..005
@@ -243,8 +280,17 @@
 
 ## Deferred pending explicit user approval (§19)
 
-- [ ] crates.io publish
-- [ ] GitHub release / repo visibility change
+- [x] crates.io publish — done for 0.2.0 and 0.3.0. As of 0.3.0, kicking
+      off a release round (i.e. deciding "we're releasing now") still
+      needs explicit approval, but once that round's commits are pushed
+      and CI is green, the rest of the sequence (publish, crates.io
+      verification via a fresh fixture, docs.rs check, tag, GitHub
+      Release, SHA consistency check) runs without a separate approval
+      per step — see `docs/release-checklist.md` and ROADMAP.md
+      (untracked, internal) for the standing policy.
+- [x] GitHub release / repo visibility change — `v0.2.0` and `v0.3.0`
+      releases both published; repo visibility unchanged (still whatever
+      it was before, not touched by this policy).
 - [ ] Any new runtime (non-dev) dependency, including specifically:
       `num-bigint`/`num-rational` (or similar) promoted from dev-only
       (ADR-005) to a genuine runtime dependency, as the fallback if

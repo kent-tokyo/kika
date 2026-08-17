@@ -322,3 +322,27 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   failure mode here was only found by actually deriving the overflow
   condition algebraically, not by pattern-matching against the first
   (uniform-magnitude) one that seemed like the obvious story.
+- Design decision, 0.3.0: which public enums get `#[non_exhaustive]`.
+  Prompted by `CdtError::DegeneratePointSet` (see the entry above) landing
+  on an enum that wasn't `#[non_exhaustive]` in 0.2.0 — itself a breaking
+  change for any consumer with an exhaustive `match`, which is why that
+  fix shipped as 0.3.0 rather than 0.2.1. Inventoried all 11 public enums
+  (`grep -rn "^pub enum" src/`) and split them on one question: is this
+  the `E` in a `Result<T, E>` (or diagnostic-list equivalent), or is it a
+  classification of a mathematically/geometrically closed outcome set?
+  `KikaError`, `CdtError`, `PolygonTriangulationError`, and (doc-hidden,
+  but still technically `pub`) `TopologyError` got `#[non_exhaustive]` —
+  each is "why did this fallible operation reject/fail," and `CdtError`
+  already proved that set grows. `Sign`, `Orientation`,
+  `PointSegmentRelation`, `PointTriangleRelation`,
+  `SegmentIntersectionKind`, `SegmentIntersection2`,
+  `PolygonBasicValidity`, `HullBoundaryPoints` were left exhaustive: none
+  are `Result` error types (no `Error` impl, not returned as `Err`), and
+  each enumerates a fixed, complete geometric/structural classification by
+  construction — `SegmentIntersectionKind`'s own doc comment even says so
+  explicitly ("a zero-length input segment is not a separate variant ...
+  folds into `EndpointTouch`/`None`"). Lesson for the next public enum
+  this crate adds: ask "is this a `Result` error, or a closed
+  classification" first — the answer settles `#[non_exhaustive]`
+  immediately, no case-by-case guessing needed. See `CHANGELOG.md`'s
+  0.3.0 entry.

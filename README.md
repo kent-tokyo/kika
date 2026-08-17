@@ -346,5 +346,5 @@ implemented: polygon/mesh Boolean; exact Voronoi construction; vertex
 deletion; Delaunay refinement; mesh repair; surface reconstruction;
 point-cloud processing. See [`tasks/todo.md`](tasks/todo.md) for the
 phased backlog and [`docs/release-checklist.md`](docs/release-checklist.md)
-for what's verified vs. still needed before an actual `crates.io`/GitHub
-release (neither has happened yet).
+for what's verified before each `crates.io`/GitHub release (0.2.0 and
+0.3.0 have both shipped; see `CHANGELOG.md`).
