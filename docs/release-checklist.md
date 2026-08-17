@@ -27,9 +27,11 @@ the 0.4.0 version-bump commit.
       (`4e54804`..`d6bf971`, all 10 jobs green — including
       `wasm-test-node`'s first real CI run); the version-bump/CHANGELOG
       commit(s) on top are only locally verified so far, not yet pushed
-- [ ] `cargo package --list` reviewed — no accidental inclusion of
-      scratch/dev-only files
-- [ ] `cargo publish --dry-run` passes
+- [x] `cargo package --list` reviewed (94 files) — no accidental
+      inclusion of scratch/dev-only files; specifically confirmed
+      `ROADMAP.md` (internal, gitignored) does **not** leak into the
+      package
+- [x] `cargo publish --dry-run` passes (kika v0.4.0, 203.8KiB compressed)
 - [x] `CHANGELOG.md` has a dated entry for the release
       (`[0.4.0] - 2026-08-18`), not just `[Unreleased]`
 - [x] Version bumped in `Cargo.toml` to `0.4.0`
