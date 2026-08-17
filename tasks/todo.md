@@ -1,5 +1,36 @@
 # Todo
 
+## Done (0.4.0: polygon triangulation with holes — implemented, not yet released)
+
+- [x] `Polygon2::relation_to`/`PointPolygonRelation`: exact point-in-polygon
+      predicate (crossing-number/ray-casting via `orient2d` +
+      `Segment2::relation_to`, no new coordinate). Verified against an
+      independent exact-rational *winding-number* oracle (deliberately a
+      different algorithm class from the production even-odd test) in
+      `tests/differential/point_in_polygon.rs`. Caught and fixed a real
+      test-generator bug along the way (not a `relation_to` bug): the
+      angle-sort-around-centroid technique for building random simple
+      polygons silently produces a self-intersecting ring under extreme
+      intra-ring magnitude mixing — see `lessons.md`.
+- [x] `triangulate_polygon_with_holes`: generalizes `triangulate_polygon`'s
+      existing algorithm (a hole's boundary is just more constrained
+      edges the same flood fill already stops at) rather than a new one.
+      `PolygonTriangulationError` (`#[non_exhaustive]` since 0.3.0, so
+      this is non-breaking) gains `InvalidHole`, `HoleSelfIntersecting`,
+      `HoleIntersectsOuter`, `HoleOutsideOuter`, `HolesIntersect`,
+      `NestedHole`. Nested holes ("island" case) out of scope, typed
+      error. Verified against all 9 fixtures + acceptance criteria from
+      `ROADMAP.md`'s (internal) 0.4.0 spec — see that file for exactly
+      what shipped vs. what's still deliberately deferred.
+- [x] CHANGELOG (`[Unreleased]`), `docs/degeneracy-policy.md`,
+      `docs/compatibility.md`, README (Implemented today/Maturity
+      table/examples list), and a new runnable example
+      (`examples/polygon_triangulation_with_holes.rs`) all updated to
+      match. Version **not** bumped, `[Unreleased]` **not** renamed to
+      `[0.4.0]` — starting an actual release round is a separate decision
+      (see `ROADMAP.md`'s "0.4.0 — implemented locally, not yet
+      released" note).
+
 ## Done (0.3.0: bug-check-and-refactoring pass + release)
 
 - [x] `constrained_delaunay2` panicked on any degenerate point set (fewer
