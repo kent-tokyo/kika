@@ -8,7 +8,7 @@
 
 Kika（「幾何」）は、堅牢な2D/3D計算幾何を目指して構築されているRustライブラリです：適応的/厳密フォールバック演算を備えた厳密述語、そして後のフェーズでは、その基盤の上に構築される三角形分割・凸包・多角形アルゴリズム。
 
-状態: **pre-alpha（Phase 1-5およびPhase 6A-6D完了）。** 0.3.0時点で、Kikaは厳密述語、2D凸包、Delaunay三角形分割、制約付きDelaunay三角形分割（狭いスコープ）、単純多角形の三角形分割（狭いスコープ）を備えた堅牢な2Dカーネルです — 実際にカバーする範囲・カバーしない範囲の詳細は[今日実装されている機能](#implemented-today)と下記の[成熟度](#maturity)の表を参照してください。まだ安定性の保証はありません。まだ存在しないものについては[ロードマップ](#roadmap)を参照してください — **KikaはCGALの代替として完成したものではありません**、将来そうしたものが構築される土台となる堅牢なカーネルです。
+状態: **pre-alpha（Phase 1-5およびPhase 6A-6D完了）。** 0.4.0時点で、Kikaは厳密述語、2D凸包、Delaunay三角形分割、制約付きDelaunay三角形分割（狭いスコープ）、単純多角形の三角形分割（狭いスコープ）を備えた堅牢な2Dカーネルです — 実際にカバーする範囲・カバーしない範囲の詳細は[今日実装されている機能](#implemented-today)と下記の[成熟度](#maturity)の表を参照してください。まだ安定性の保証はありません。まだ存在しないものについては[ロードマップ](#roadmap)を参照してください — **KikaはCGALの代替として完成したものではありません**、将来そうしたものが構築される土台となる堅牢なカーネルです。
 
 ## <a id="why-not-just-use-cgal"></a>なぜCGALをそのまま使わないのか？
 
@@ -47,7 +47,8 @@ Kikaの賭け、順を追って：
 * `delaunay2` / `Triangulation2` — Bowyer-Watson逐次挿入法による2D Delaunay三角形分割。`convex_hull2`と同様に完全に厳密です：「三角形分割の外側」は合成された境界三角形ではなく、単一のシンボリックなゴースト頂点（座標を持たない）で表現されるため、回避すべきスケール依存のトレードオフが存在しません — スパン`10.0`に対する垂直方向のクラスタ広がり`1e-200`まで検証済みです。共円点は複数の有効な三角形分割の間の真の同点であり、唯一の「正しい」答えではありません。決定論的なタイブレークルールは[`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)に他のすべての退化ケース（共線な境界点、既存の辺上に厳密に存在する点）とともに文書化されています。
 * `Triangulation2`の隣接構造 — `VertexId`/`EdgeId`/`FaceId`と`vertices`/`edges`/`faces`/`edge_vertices`/`adjacent_faces`/`face_vertices`/`neighboring_faces`/`boundary_edges`。インデックス化された三角形隣接構造の**静的で構築後のスナップショット**です（ADR-006の比較に基づき、half-edge/quad-edgeの汎用性はありません）。`triangles()`は元の座標のみの契約を変更せず維持し、新しいメソッドは純粋に追加的です。
 * `constrained_delaunay2` / `ConstrainedTriangulation2` — 2D制約付きDelaunay三角形分割。意図的に狭いスコープです（Phase 6C）：既存の入力頂点間の交差しない制約辺のみで、自動的な交差点/Steiner点生成やリファインメントはありません。このクレート自身の`orient2d`/`incircle`/`segment_intersection_kind`述語を通じて既存のDelaunay辺をフリップすることだけで完全に構築されています — ADR-004のPhase 6再評価は、CDTには**新しい構築が不要**であると予測しており、実装はそれを裏付けています：新しい座標は一つも構築されません。制約の回復とDelaunayの復元はそれぞれ有界です（無限ループになりません）。`CdtError`は交差/共線な制約、アルゴリズムの限界超過、そして退化した点集合(点が3個未満、またはすべて共線)を型付きエラーとして報告し、panicは発生しません。
-* `triangulate_polygon` — 単純多角形の三角形分割（Phase 6D）。Phase 6CのCDTの上に構築されています：多角形のすべての辺を制約とし、（非凸な入力に対しては）多角形の外側にある凹んだポケット面を、1つの内部シード面からの純粋にトポロジカルなフラッドフィルによって破棄します — セントロイドのような構築された座標は決して使いません。穴なし、Steiner点なし（すべての出力頂点は多角形自身の頂点のいずれかです）、自己交差する入力は型付きの`PolygonTriangulationError`として拒否され、CCWとCWの両方の入力を受け付け、決定論的です。完全なスコープの表については[`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)を参照してください。`Triangulation2::validate_topology()`で結果をチェックする際の注意点も含まれます（そのオイラー標数チェックは三角形分割が凸包全体をカバーしていることを前提としていますが、非凸多角形の三角形分割は意図的にそれを持ちません）。
+* `triangulate_polygon` — 単純多角形の三角形分割（Phase 6D）。Phase 6CのCDTの上に構築されています：多角形のすべての辺を制約とし、（非凸な入力に対しては）多角形の外側にある凹んだポケット面を、1つの内部シード面からの純粋にトポロジカルなフラッドフィルによって破棄します — セントロイドのような構築された座標は決して使いません。Steiner点なし（すべての出力頂点は多角形自身の頂点のいずれかです）、自己交差する入力は型付きの`PolygonTriangulationError`として拒否され、CCWとCWの両方の入力を受け付け、決定論的です。完全なスコープの表については[`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)を参照してください。`Triangulation2::validate_topology()`で結果をチェックする際の注意点も含まれます（そのオイラー標数チェックは三角形分割が凸包全体をカバーしていることを前提としていますが、非凸多角形の三角形分割は意図的にそれを持ちません）。
+* `triangulate_polygon_with_holes` — 穴付き多角形三角形分割。`triangulate_polygon`自身のアルゴリズムを新しいものに置き換えるのではなく一般化したものです：穴の境界は、同じフラッドフィルが止まる、より多くの制約辺にすぎません。あるホールが別のホールの中にネストしている場合はスコープ外です（部分的なサポートではなく型付きエラー）。それ以外の拒否される入力（境界の外にあるホール、境界に接触・交差するホール、他のホールと接触・交差するホール）も同様に型付きの`PolygonTriangulationError`として扱われ、panicにはなりません。`Polygon2::relation_to`/`PointPolygonRelation`（これと同時に追加された厳密な点と多角形の述語）がホール包含チェックを支えています。
 
 4つの述語すべてがv0.1の堅牢述語スコープを完了しており、上記のプリミティブ・交差判定・多角形・凸包・Delaunay三角形分割はPhase 2からPhase 4を完了しています。`segment_intersection`の`Proper`交差点構築（下記）でPhase 5が完了し、上記の隣接構造・制約付きDelaunay三角形分割・単純多角形三角形分割でPhase 6A-6Dが完了しています。これより先（多角形Boolean演算、厳密Voronoi）は後の話です — [ロードマップ](#roadmap)を参照。
 
@@ -95,7 +96,7 @@ let constrained_edge_count = cdt
 assert_eq!(constrained_edge_count, constraints.len());
 ```
 
-単純多角形の三角形分割 — 穴なし、Steiner点なし、上記の制約付きDelaunayの上に構築されています（こちらもdoctestされています。[`triangulate_polygon`自身のドキュメント例](src/triangulation/polygon.rs)として存在します）：
+単純多角形の三角形分割 — Steiner点なし、上記の制約付きDelaunayの上に構築されています（こちらもdoctestされています。[`triangulate_polygon`自身のドキュメント例](src/triangulation/polygon.rs)として存在します）。`triangulate_polygon`は境界リング1つのみを扱います（穴なし）。`triangulate_polygon_with_holes`は同じアルゴリズムを、境界リングとゼロ個以上の穴リングへ拡張したものです（Steiner点なし、新しい構築もなし、という点は変わりません）：
 
 ```rust
 use kika::{Point2, Polygon2, triangulate_polygon};
@@ -122,6 +123,7 @@ assert_eq!(t.len(), square.len() - 2);
 * [`polygon_validity`](examples/polygon_validity.rs) — `basic_validity`と`find_self_intersection`
 * [`constrained_delaunay`](examples/constrained_delaunay.rs) — 特定の（Delaunayでない可能性のある）辺を強制的に残す
 * [`polygon_triangulation`](examples/polygon_triangulation.rs) — 非凸多角形、三角形数/CCW/面積のチェック付き
+* [`polygon_triangulation_with_holes`](examples/polygon_triangulation_with_holes.rs) — 2つの独立した穴をくり抜いた境界
 
 ## WASM
 
@@ -145,7 +147,8 @@ Pre-1.0であり、semverの保証はありません。一部の計算幾何ラ�
 | Delaunay三角形分割 | 実装済み — 完全に厳密、合成座標なし |
 | 三角形分割の隣接関係（頂点/辺/面クエリ） | 実装済み — `VertexId`/`EdgeId`/`FaceId`、隣接/境界クエリ、内部トポロジー検証器（ADR-006） |
 | 制約付きDelaunay | 実装済み — 狭いスコープ：既存頂点間の交差しない制約のみ、Steiner点なし（Phase 6C） |
-| 単純多角形の三角形分割 | 実装済み — 狭いスコープ：穴なし、Steiner点なし、自己交差する入力は拒否（Phase 6D） |
+| 単純多角形の三角形分割 | 実装済み — Steiner点なし、自己交差する入力は拒否（Phase 6D）。穴に対応（0.4.0、`triangulate_polygon_with_holes`）— ネストした穴はスコープ外、型付きエラー |
+| Voronoi図 | 未実装 |
 | 多角形Boolean演算 | 未実装 — 厳密性モデルはまだ未確定、ADR-004を参照 |
 | 3Dメッシュ演算 | 未実装 |
 

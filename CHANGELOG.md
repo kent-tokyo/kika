@@ -5,6 +5,12 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-18
+
+Polygon triangulation with holes, plus a wasm32 execution-testing gap
+closed. No breaking changes — every new enum variant lands on an already
+`#[non_exhaustive]` enum (as of 0.3.0).
+
 ### Added
 
 - `Polygon2::relation_to` / `PointPolygonRelation`: exact point-in-polygon
@@ -30,6 +36,23 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   supported). See the function's own doc comment for the full algorithm,
   rejected-input list, and the `n + 2h - 2` triangle-count acceptance
   criterion.
+
+### Changed
+
+- wasm32 is now **executed**, not just built: `tests/wasm.rs` runs 10
+  load-bearing cases (one per major subsystem — predicates, segment
+  intersection, the 0.3.0 `line_intersection` overflow fix, Delaunay,
+  degenerate CDT, both polygon-triangulation entry points) under an
+  actual Node.js runtime via `wasm-pack test --node --release`, both
+  locally and in a new independent CI job (`wasm-test-node`; the
+  existing build-only `wasm` job is unchanged). Closes the gap noted in
+  0.3.0's `docs/compatibility.md` entry: ADR-001's "Rust never contracts
+  `+`/`-`/`*` into FMA" argument, load-bearing for the exact-arithmetic
+  core, is now empirically confirmed on this target, not just assumed
+  from a successful build. `wasm-bindgen-test` added as a `wasm32`-only
+  dev-dependency — never propagates to downstream crates or the normal
+  build (same isolation as the existing `num-bigint`/`num-rational`
+  oracle dev-dependencies).
 
 ## [0.3.0] - 2026-08-17
 

@@ -1,28 +1,32 @@
 # Compatibility
 
-Status: Phase 1-5 complete; Phase 6A-6D complete. As of the 0.3.0
-candidate (0.2.0 already shipped; 0.3.0 is a robustness/compatibility
-follow-up — see `CHANGELOG.md`), Kika is a robust 2D kernel with exact
-predicates, 2D convex hull, Delaunay triangulation, constrained Delaunay
-triangulation (narrow scope), and simple-polygon triangulation (narrow
-scope) — see `README.md`'s Maturity table for exactly what each covers.
-Polygon Boolean and later Phase 6 work not started, deliberately
-deferred.
+Status: Phase 1-5 complete; Phase 6A-6D complete. As of the 0.4.0
+candidate (0.2.0 and 0.3.0 already shipped; 0.4.0 adds polygon
+triangulation with holes — see `CHANGELOG.md`), Kika is a robust 2D
+kernel with exact predicates, 2D convex hull, Delaunay triangulation,
+constrained Delaunay triangulation (narrow scope), and simple-polygon
+triangulation with or without holes — see `README.md`'s Maturity table
+for exactly what each covers. Voronoi, polygon Boolean, and later
+roadmap work not started, deliberately deferred.
 
 ## Platforms
 
-* `aarch64-apple-darwin` — full test suite (274 tests across unit,
-  differential, adversarial, regression, doctests) run locally on this
-  target during development, not just built.
+* `aarch64-apple-darwin` — full test suite (302 tests across unit,
+  differential, adversarial, regression, doctests — plus 10 more under
+  `wasm-pack test`, see below) run locally on this target during
+  development, not just built.
 * `x86_64`, `aarch64` Linux/macOS/Windows — `.github/workflows/ci.yml`
   runs the full test suite on `ubuntu-latest`, `macos-latest` (Apple
   Silicon on current GitHub-hosted runners), `windows-latest`. Confirmed
   green on actual pushes to `kent-tokyo/kika` (all jobs: fmt, clippy,
   test matrix, MSRV, wasm32 build, `cargo doc`, `cargo deny`) as of
   Phase 5's push, again after Phase 6A-6D + the CDT bug-fix commit landed
-  (commit `d5e755a`, all 9 jobs green), and again after the 0.3.0
+  (commit `d5e755a`, all 9 jobs green), again after the 0.3.0
   bug-check-and-refactoring commits landed (`bf936c8`..`59f92b3`, all 5
-  jobs green) — CI-confirmed, not just locally verified.
+  jobs green), and again after the 0.4.0 polygon-with-holes and wasm
+  execution-testing commits landed (`4e54804`..`d6bf971`, all 10 jobs
+  green, including the new `wasm-test-node` job's first real CI run) —
+  CI-confirmed, not just locally verified.
 * `wasm32-unknown-unknown` — library **builds** successfully, verified
   both locally and in CI (`cargo build --target wasm32-unknown-unknown
   --lib`, the `wasm` job). As of this session, also **executed**, not
@@ -84,5 +88,4 @@ Public API surface as of Phase 6D:
 `ConstrainedTriangulation2`, `CdtError`, `constrained_delaunay2`,
 `validate_cdt_topology` (Phase 6C), `PolygonTriangulationError`,
 `triangulate_polygon` (Phase 6D), `PointPolygonRelation`,
-`triangulate_polygon_with_holes` (0.4.0, in progress — see
-`ROADMAP.md`, untracked/internal).
+`triangulate_polygon_with_holes` (0.4.0).

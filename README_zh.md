@@ -8,7 +8,7 @@
 
 Kika（「幾何」）是一个致力于健壮 2D/3D 计算几何的 Rust 库：具备自适应/精确回退运算的精确谓词，以及在后续阶段基于此基础构建的三角剖分、凸包与多边形算法。
 
-状态：**pre-alpha（Phase 1-5 及 Phase 6A-6D 已完成）。** 截至 0.3.0，Kika 是一个健壮的 2D 内核，具备精确谓词、2D 凸包、Delaunay 三角剖分、约束 Delaunay 三角剖分（范围有限）以及简单多边形三角剖分（范围有限）——具体覆盖了什么、没有覆盖什么，请参见[今天已实现的功能](#implemented-today)和下面的[成熟度](#maturity)表。目前尚无稳定性保证。尚不存在的功能请参见[路线图](#roadmap)——**Kika 并不是一个已完成的 CGAL 替代品**，而是未来可能构建出这样一个替代品的健壮内核。
+状态：**pre-alpha（Phase 1-5 及 Phase 6A-6D 已完成）。** 截至 0.4.0，Kika 是一个健壮的 2D 内核，具备精确谓词、2D 凸包、Delaunay 三角剖分、约束 Delaunay 三角剖分（范围有限）以及简单多边形三角剖分（范围有限）——具体覆盖了什么、没有覆盖什么，请参见[今天已实现的功能](#implemented-today)和下面的[成熟度](#maturity)表。目前尚无稳定性保证。尚不存在的功能请参见[路线图](#roadmap)——**Kika 并不是一个已完成的 CGAL 替代品**，而是未来可能构建出这样一个替代品的健壮内核。
 
 ## <a id="why-not-just-use-cgal"></a>为什么不直接使用 CGAL？
 
@@ -47,7 +47,8 @@ Kika 的赌注，按顺序：
 * `delaunay2` / `Triangulation2` —— 基于 Bowyer-Watson 增量插入法的 2D Delaunay 三角剖分。与 `convex_hull2` 一样完全精确：三角剖分的「外部」用一个单一的符号化幽灵顶点（没有坐标）来表示，而不是一个合成的外包三角形，因此不存在需要权衡处理的尺度依赖问题——已验证在跨度为 `10.0` 的情况下，垂直方向点簇间距小至 `1e-200` 时仍然正确。共圆点意味着多个有效三角剖分之间真正存在平局，而不是只有唯一的「正确」答案；确定性的平局打破规则记录在 [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md) 中，与其他所有退化情形（共线的边界点、恰好位于已有边上的点）一起列出。
 * `Triangulation2` 的邻接结构 —— `VertexId`/`EdgeId`/`FaceId`，以及 `vertices`/`edges`/`faces`/`edge_vertices`/`adjacent_faces`/`face_vertices`/`neighboring_faces`/`boundary_edges`。这是索引化三角形邻接结构的**静态、构造完成后的快照**（依据 ADR-006 的比较，不具备半边/四边结构的通用性）。`triangles()` 保持其原有的仅坐标契约不变，新增方法完全是附加性的。
 * `constrained_delaunay2` / `ConstrainedTriangulation2` —— 2D 约束 Delaunay 三角剖分，有意保持较窄的范围（Phase 6C）：仅支持在*已有*输入顶点之间的不相交约束边，没有自动的交点/Steiner 点生成，也没有细化（refinement）。完全通过翻转已有的 Delaunay 边来构建，使用的是本 crate 自身的 `orient2d`/`incircle`/`segment_intersection_kind` 谓词——ADR-004 的 Phase 6 重新评估预测 CDT **不需要任何新的构造**，实现也证实了这一点：没有构造出任何一个新坐标。约束恢复和 Delaunay 恢复过程都是有界的（不会出现无界循环）；`CdtError` 会将相交/共线的约束、算法穷尽的情形，以及退化点集(点数少于 3 个，或全部共线)作为带类型的错误报告出来，而不会 panic。
-* `triangulate_polygon` —— 简单多边形三角剖分（Phase 6D），构建在 Phase 6C 的 CDT 之上：将多边形的每条边都作为约束，然后（对于非凸输入）通过从一个内部种子面出发的纯拓扑洪水填充（flood fill），丢弃多边形外部的凹陷区域面——绝不使用诸如质心之类的构造坐标。无孔洞、无 Steiner 点（每个输出顶点都是多边形自身的顶点之一），自相交的输入会被作为带类型的 `PolygonTriangulationError` 拒绝，同时接受 CCW 和 CW 方向的输入，且结果具有确定性。完整的范围说明表见 [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)，其中还包含了使用 `Triangulation2::validate_topology()` 检查结果时需要注意的事项（该函数的欧拉示性数检查假设三角剖分覆盖了整个凸包，而非凸多边形的三角剖分则有意不满足这一点）。
+* `triangulate_polygon` —— 简单多边形三角剖分（Phase 6D），构建在 Phase 6C 的 CDT 之上：将多边形的每条边都作为约束，然后（对于非凸输入）通过从一个内部种子面出发的纯拓扑洪水填充（flood fill），丢弃多边形外部的凹陷区域面——绝不使用诸如质心之类的构造坐标。无 Steiner 点（每个输出顶点都是多边形自身的顶点之一），自相交的输入会被作为带类型的 `PolygonTriangulationError` 拒绝，同时接受 CCW 和 CW 方向的输入，且结果具有确定性。完整的范围说明表见 [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)，其中还包含了使用 `Triangulation2::validate_topology()` 检查结果时需要注意的事项（该函数的欧拉示性数检查假设三角剖分覆盖了整个凸包，而非凸多边形的三角剖分则有意不满足这一点）。
+* `triangulate_polygon_with_holes` —— 带孔多边形三角剖分，是对 `triangulate_polygon` 自身算法的推广而非另起炉灶：孔的边界只是同一个洪水填充算法会在其处停止的更多约束边而已。一个孔嵌套在另一个孔内部的情形超出范围（作为带类型错误处理，而非部分支持）。其他被拒绝的输入（孔位于边界之外、与边界接触或相交、与其他孔接触或相交）同样作为带类型的 `PolygonTriangulationError` 处理，绝不会 panic。`Polygon2::relation_to`/`PointPolygonRelation`（与此同时新增的精确点与多边形谓词）支撑着孔包含关系的检查。
 
 以上四个谓词共同完成了 v0.1 的健壮谓词范围；上述的基本图元、相交判定、多边形与凸包、Delaunay 三角剖分完成了 Phase 2 到 Phase 4。`segment_intersection` 的 `Proper` 相交点构造（见下文）完成了 Phase 5，而上述的邻接结构、约束 Delaunay 三角剖分与简单多边形三角剖分完成了 Phase 6A-6D。此后的内容（多边形布尔运算、精确 Voronoi）留待以后实现——见[路线图](#roadmap)。
 
@@ -95,7 +96,7 @@ let constrained_edge_count = cdt
 assert_eq!(constrained_edge_count, constraints.len());
 ```
 
-简单多边形三角剖分——无孔洞、无 Steiner 点，构建在上述约束 Delaunay 之上（同样是一个 doctest，作为[`triangulate_polygon` 自身文档中的示例](src/triangulation/polygon.rs)存在）：
+简单多边形三角剖分——无 Steiner 点，构建在上述约束 Delaunay 之上（同样是一个 doctest，作为[`triangulate_polygon` 自身文档中的示例](src/triangulation/polygon.rs)存在）。`triangulate_polygon` 只处理单一边界环（无孔洞）；`triangulate_polygon_with_holes` 将同一算法扩展到边界环加零个或多个孔洞环（仍然无 Steiner 点，也不涉及新的构造）：
 
 ```rust
 use kika::{Point2, Polygon2, triangulate_polygon};
@@ -122,6 +123,7 @@ assert_eq!(t.len(), square.len() - 2);
 * [`polygon_validity`](examples/polygon_validity.rs) —— `basic_validity` 与 `find_self_intersection`
 * [`constrained_delaunay`](examples/constrained_delaunay.rs) —— 强制保留某条（可能非 Delaunay 的）指定边
 * [`polygon_triangulation`](examples/polygon_triangulation.rs) —— 非凸多边形，附带三角形数量/CCW/面积的检查
+* [`polygon_triangulation_with_holes`](examples/polygon_triangulation_with_holes.rs) —— 挖去两个独立孔洞的边界
 
 ## WASM
 
@@ -145,7 +147,8 @@ Pre-1.0 阶段，没有 semver 保证。某些计算几何库（包括 CGAL）�
 | Delaunay 三角剖分 | 已实现 —— 完全精确，无合成坐标 |
 | 三角剖分邻接关系（顶点/边/面查询） | 已实现 —— `VertexId`/`EdgeId`/`FaceId`，邻接/边界查询，内部拓扑校验器（ADR-006） |
 | 约束 Delaunay | 已实现 —— 范围有限：仅支持已有顶点之间的不相交约束，无 Steiner 点（Phase 6C） |
-| 简单多边形三角剖分 | 已实现 —— 范围有限：无孔洞，无 Steiner 点，自相交输入会被拒绝（Phase 6D） |
+| 简单多边形三角剖分 | 已实现 —— 无 Steiner 点，自相交输入会被拒绝（Phase 6D）。支持孔洞（0.4.0，`triangulate_polygon_with_holes`）—— 嵌套孔洞超出范围，作为带类型错误处理 |
+| Voronoi 图 | 未实现 |
 | 多边形布尔运算 | 未实现 —— 精确性模型仍未确定，见 ADR-004 |
 | 3D 网格运算 | 未实现 |
 

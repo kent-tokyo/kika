@@ -12,10 +12,10 @@ robust 2D/3D computational geometry: exact predicates with adaptive/exact
 fallback arithmetic, and — in later phases — triangulation, hull, and
 polygon algorithms built on top of that foundation.
 
-Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.3.0,
+Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.4.0,
 Kika is a robust 2D kernel with exact predicates, 2D convex hull, Delaunay
 triangulation, constrained Delaunay triangulation (narrow scope), and
-simple-polygon triangulation (narrow scope) — see
+simple-polygon triangulation, with or without holes — see
 [Implemented today](#implemented-today) and the
 [Maturity](#maturity) table below for exactly what that does and doesn't
 cover. No stability guarantees yet. See [Roadmap](#roadmap) for what
@@ -362,5 +362,5 @@ implemented: polygon/mesh Boolean; exact Voronoi construction; vertex
 deletion; Delaunay refinement; mesh repair; surface reconstruction;
 point-cloud processing. See [`tasks/todo.md`](tasks/todo.md) for the
 phased backlog and [`docs/release-checklist.md`](docs/release-checklist.md)
-for what's verified before each `crates.io`/GitHub release (0.2.0 and
-0.3.0 have both shipped; see `CHANGELOG.md`).
+for what's verified before each `crates.io`/GitHub release (0.2.0,
+0.3.0, and 0.4.0 have all shipped; see `CHANGELOG.md`).
