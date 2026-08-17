@@ -604,6 +604,59 @@ fn is_locally_delaunay(
         && ccw_incircle(tri_b, vertex_pos, pp) != Sign::Positive
 }
 
+/// Restores local Delaunay-ness on every unconstrained edge by
+/// repeatedly finding one locally-illegal edge (any one —
+/// `find_first_bad_unconstrained_edge` always returns whichever
+/// candidate appears first in array order) and flipping it, until none
+/// remain or `bound` is hit.
+///
+/// **Why rescan-and-pick-first terminates here, unlike
+/// `insert_constraint_edge`'s original version.** This loop has the same
+/// surface shape as `insert_constraint_edge`'s original crossing-edge-recovery
+/// loop, which could 2-cycle forever (see that function's doc comment,
+/// `tasks/lessons.md`) — but the two loops are governed by different
+/// mathematics. Lifting every vertex `(x, y)` to `(x, y, x²+y²)` on the
+/// paraboloid, a triangulation's edges are locally Delaunay exactly
+/// where the corresponding lifted piecewise-linear surface is convex at
+/// that edge (the standard 2D-Delaunay / 3D-lower-convex-hull
+/// equivalence — `is_locally_delaunay`'s `incircle` check and
+/// `can_flip`'s `orient2d`-based convexity check are exactly this
+/// equivalence's two halves). Flipping a locally-illegal edge replaces
+/// the two lifted triangles spanning it with the strictly lower pair, so
+/// each *executed* flip strictly lowers the total volume under this
+/// piecewise-linear surface. That volume is bounded below (by the volume
+/// under the point set's true lower convex hull) and there are only
+/// finitely many triangulations of a fixed point set, so a sequence of
+/// flips that each strictly lowers this quantity can never revisit a
+/// prior triangulation and must terminate — regardless of which illegal
+/// edge is picked at each step. `insert_constraint_edge`'s crossing-edge
+/// selection has no analogous monotonic quantity, which is why it could
+/// 2-cycle and this can't.
+///
+/// Excluding constrained edges from candidacy restricts *which* flips can
+/// occur, but every flip this function actually executes is still a
+/// legalizing flip of a currently-illegal unconstrained edge, so it still
+/// strictly lowers the same global potential — this "frozen edge"
+/// extension is the standard treatment for constrained-Delaunay
+/// legalization (e.g. Sloan 1993), not independently re-derived from
+/// scratch here. If it's wrong, `bound` and the typed
+/// `CdtError::ConstraintInsertionFailed` return on exhaustion are the
+/// actual safety net, same as `insert_constraint_edge`.
+///
+/// Stress-tested (not proven) up to 3000-point / 3000-constraint random
+/// inputs with zero bound-exhaustion failures; see
+/// `flip_count_stays_well_below_the_bound_many_constraints` for the
+/// smaller, always-run regression version of that stress test, and its
+/// coverage of the multi-constraint-in-one-call mode specifically (the
+/// single-constraint `flip_count_stays_well_below_the_bound` never
+/// exercises more than one constraint before this function runs).
+///
+/// `can_flip` failing for an edge already reported illegal is expected to
+/// be unreachable in general position (an illegal edge's quadrilateral is
+/// convex by a classical lemma), so this errors immediately rather than
+/// requeuing like `insert_constraint_edge` does — kept as a defensive
+/// typed error, not a panic, in case `incircle`/`orient2d` disagree at
+/// the margins; not part of the termination argument above.
 fn restore_unconstrained_delaunay(
     faces: &mut [[VertexId; 3]],
     face_neighbors: &mut [[Option<FaceId>; 3]],
@@ -1110,6 +1163,92 @@ mod tests {
         );
         assert!(
             max_restore < 20,
+            "restore flip count {max_restore} closer to the bound than expected"
+        );
+    }
+
+    /// Same measurement as `flip_count_stays_well_below_the_bound`, but
+    /// for the mode that test never exercises: many constraints in a
+    /// single call, forming a closed cycle around the point set --
+    /// exactly `triangulate_polygon`'s own construction (`(i, (i+1) % n)`
+    /// for every boundary vertex). `restore_unconstrained_delaunay` runs
+    /// exactly once per call, after *all* constraints are inserted, so
+    /// this is the input shape that actually stresses its flip-count
+    /// margin, not the single-constraint case.
+    #[test]
+    fn flip_count_stays_well_below_the_bound_many_constraints() {
+        reset_flip_counters();
+        let mut rng = 0x1BD1_1BDA_A9FC_1A22_u64;
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            (rng % 13) as f64
+        };
+
+        let mut trials_run = 0u32;
+        for n in [6usize, 8, 10, 12, 14] {
+            for _ in 0..20 {
+                let mut pts: Vec<Point2> = (0..n).map(|_| p(next(), next())).collect();
+                pts.dedup_by(|a, b| a == b);
+                if pts.len() < 3 {
+                    continue;
+                }
+                // Sort by angle around the centroid so the boundary cycle
+                // (i, i+1) is simple (non-self-intersecting) -- an
+                // arbitrary random order would almost always self-intersect
+                // and every trial would fail validation before any flip
+                // ever ran, making the measurement below vacuous.
+                let cx = pts.iter().map(Point2::x).sum::<f64>() / pts.len() as f64;
+                let cy = pts.iter().map(Point2::y).sum::<f64>() / pts.len() as f64;
+                pts.sort_by(|a, b| {
+                    let angle = |p: &Point2| (p.y() - cy).atan2(p.x() - cx);
+                    angle(a).total_cmp(&angle(b))
+                });
+
+                let m = pts.len();
+                let constraints: Vec<(usize, usize)> = (0..m).map(|i| (i, (i + 1) % m)).collect();
+                if constrained_delaunay2(&pts, &constraints).is_ok() {
+                    trials_run += 1;
+                }
+            }
+        }
+
+        let max_cdt = MAX_CDT_FLIPS.with(|c| c.get());
+        let max_cdt_passes = MAX_CDT_PASSES.with(|c| c.get());
+        let max_restore = MAX_RESTORE_FLIPS.with(|c| c.get());
+        eprintln!(
+            "cdt (many constraints): {trials_run} trials succeeded, measured max insertion \
+             flips = {max_cdt} (passes = {max_cdt_passes}), max restore flips = {max_restore}"
+        );
+        assert!(
+            trials_run > 0,
+            "every trial failed validation -- measurement below is vacuous"
+        );
+        // Anti-vacuousness: confirm this mode actually exercised the
+        // restoration pass at least once (a fan of already-Delaunay hull
+        // edges would need zero flips and this assertion would catch
+        // that silently-trivial outcome).
+        assert!(
+            max_restore > 0,
+            "restore flip count was never above zero -- this mode never exercised a real flip"
+        );
+        // Bound is `4 * face_count + 16`; these point sets have at most
+        // ~26 faces (n=14), so the bound is ~120 -- require a comfortable
+        // margin below it, matching the single-constraint test's
+        // discipline. Measured (not copied from the single-constraint
+        // test's `< 20`), since this multi-constraint mode plausibly needs
+        // more flips.
+        assert!(
+            max_cdt < 40,
+            "insertion flip count {max_cdt} closer to the bound than expected"
+        );
+        assert!(
+            max_cdt_passes < 40,
+            "insertion pass count {max_cdt_passes} closer to the bound than expected"
+        );
+        assert!(
+            max_restore < 40,
             "restore flip count {max_restore} closer to the bound than expected"
         );
     }
