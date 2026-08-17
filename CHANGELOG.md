@@ -5,6 +5,32 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `Polygon2::relation_to` / `PointPolygonRelation`: exact point-in-polygon
+  predicate (crossing-number/ray-casting, built entirely from `orient2d`
+  and `Segment2::relation_to` — no new coordinate construction). Works for
+  any simple polygon, convex or not, unlike `Triangle2::relation_to`'s
+  "same side of every edge" test, which only works because a triangle is
+  always convex. Verified against an independent exact-rational
+  winding-number oracle (a different algorithm class from the production
+  even-odd test) in `tests/differential/point_in_polygon.rs`.
+
+- `triangulate_polygon_with_holes`: simple-polygon triangulation with
+  hole support, generalizing `triangulate_polygon`'s existing algorithm
+  rather than using a new one — a hole's boundary is just more
+  constrained edges from the same flood-fill's point of view that already
+  discards `triangulate_polygon`'s own concave pockets. No Steiner
+  points, no new construction. `PolygonTriangulationError` (already
+  `#[non_exhaustive]` as of 0.3.0) gains 6 new variants covering hole
+  rejection: `InvalidHole`, `HoleSelfIntersecting`,
+  `HoleIntersectsOuter`, `HoleOutsideOuter`, `HolesIntersect`,
+  `NestedHole` (a hole nested inside another hole — an "island" case —
+  is out of scope, rejected as a typed error rather than partially
+  supported). See the function's own doc comment for the full algorithm,
+  rejected-input list, and the `n + 2h - 2` triangle-count acceptance
+  criterion.
+
 ## [0.3.0] - 2026-08-17
 
 A robustness/compatibility release following a general bug-check and

@@ -34,6 +34,7 @@ about its inputs, not a choice among multiple valid answers.
 | All polygon vertices collinear (but `n >= 3`) | `Polygon2::orientation()` returns `Orientation::Collinear` (the exact shoelace-sum-of-expansions sign, not a float comparison — see `docs/numerical-model.md`); `basic_validity()` returns `PolygonBasicValidity::ZeroArea`. |
 | Consecutive duplicate polygon vertices (including the wraparound edge) | `Polygon2::basic_validity()` returns `PolygonBasicValidity::ConsecutiveDuplicateVertices`, checked *before* the collinearity/zero-area check. Not treated as a self-intersection — that's a separate, more expensive check. |
 | Adjacent polygon edges sharing an endpoint | `Polygon2::find_self_intersection()` explicitly excludes every adjacent edge pair (including the wraparound pair between the first and last edge) from the O(n²) check — the shared vertex is expected structure, not a self-intersection. Verified for both a convex polygon and a minimal triangle (where *every* edge pair is adjacent, so the check must return `None` for any triangle, degenerate or not). |
+| `Polygon2::relation_to` on an empty, single-vertex, or otherwise degenerate/self-intersecting ring | Total, never panics — the crossing-number loop is well-defined for any vertex count (0 vertices: no edges, always `Outside`; 1 vertex: the single degenerate zero-length "edge" only ever returns `OnBoundary` for that exact point) and for a self-intersecting ring (mechanically well-defined, but "inside" then no longer corresponds to enclosed area — check `find_self_intersection` first if that matters, per the method's own doc comment). |
 
 ## Convex hull degeneracies (Phase 3, implemented)
 
@@ -100,6 +101,26 @@ doc comment); every rejected input is a typed
 | Clockwise input | Accepted — the interior/exterior flood fill (see below) is purely topological and orientation-agnostic; the one place winding matters (picking the correct starting face) explicitly branches on `Polygon2::orientation()`. See `clockwise_input_triangulates_the_same_region`. |
 | Non-convex (reflex-vertex) polygon | The underlying CDT triangulates the full point set's convex hull; faces in the concave "pockets" between the polygon boundary and that hull are discarded by a topological flood fill seeded from one interior face (found via a single `orient2d` check against an existing triangle vertex — never a constructed point such as a centroid, which would reopen ADR-004's construction-exactness questions for no reason) and walking through every non-boundary edge. A simple polygon's interior is always a single connected region, so this reaches every interior face and no exterior one, even when there are several separate pockets. See `l_shape_discards_the_concave_pocket`, `plus_shape_discards_all_four_separate_pockets`, and `seed_edge_with_two_incident_faces_still_finds_the_interior_side` (the seed edge is a chord with 2 incident faces, not a hull edge with 1 — the case where the disambiguation is actually load-bearing). |
 | Checking the result with `Triangulation2::validate_topology()` | Its Euler-characteristic check assumes the triangulation covers its own vertex set's full convex hull — true for `delaunay2`/`constrained_delaunay2`, generally **false** here for a non-convex polygon (the flood fill deliberately discards a proper subset of the hull). Expect `TopologyError::EulerFormulaViolated` on a non-convex result; every other check still holds. The applicable invariant instead: exactly `polygon.len() - 2` triangles, always, for any simple polygon triangulated with only its own vertices. |
+
+## Polygon-with-holes triangulation degeneracies (0.4.0, implemented)
+
+`triangulate_polygon_with_holes` generalizes `triangulate_polygon` above
+(same underlying algorithm — see its doc comment) rather than adding a
+separate one; every rejected input is a typed `PolygonTriangulationError`,
+never a panic. `outer` itself is checked exactly like `triangulate_polygon`'s
+own input (the four cases in the table above apply unchanged); this table
+covers only the hole-specific cases.
+
+| Case | Behavior |
+|---|---|
+| A hole ring itself fails `Polygon2::basic_validity` (too few vertices, a degenerate edge, or zero area) | `PolygonTriangulationError::InvalidHole(hole_index, validity)` — checked before any relationship between the hole and `outer` or other holes. |
+| A hole ring self-intersects | `PolygonTriangulationError::HoleSelfIntersecting(hole_index, found)`. |
+| A hole's boundary touches or crosses `outer`'s boundary | `PolygonTriangulationError::HoleIntersectsOuter(hole_index, kind)`, `kind` from `SegmentIntersectionKind` (never `None`). Detected via an all-edge-pairs check between the hole and `outer` — the specific `kind` reported is the *first* pair found in edge-index order, same "not necessarily the geometric first" convention as `Polygon2::find_self_intersection`, not necessarily the most prominent intersection. |
+| A hole lies entirely outside `outer` (no intersection with it, and not contained) | `PolygonTriangulationError::HoleOutsideOuter(hole_index)`. Disambiguated from proper containment via a single `Polygon2::relation_to` check on one hole vertex once the all-edge-pairs check confirms zero intersections — sound because a ring that never touches or crosses `outer`'s boundary can't have some vertices inside and others outside without an intersection in between. |
+| Two holes' boundaries touch or cross | `PolygonTriangulationError::HolesIntersect(hole_a, hole_b, kind)`, `hole_a < hole_b`, same all-edge-pairs/first-found convention as the hole-vs-outer case. |
+| One hole entirely nested inside another (an "island" case) | `PolygonTriangulationError::NestedHole(inner_hole, outer_hole)`. Out of scope for 0.4.0 — a clean typed error rather than partial/silent support. Checked both directions (each hole tested for containment in the other) since which one is "inside" isn't known upfront. |
+| Any mix of CW/CCW winding, `outer` and each hole independently | Accepted — same orientation-agnostic flood fill as `triangulate_polygon`, generalized: a hole's boundary is just more constrained edges the fill stops at, exactly like `outer`'s own boundary or (for a non-convex `outer`) its concave-pocket edges. See `cw_outer_ccw_hole`/`ccw_outer_cw_hole`. |
+| Checking the result's triangle count | `n + 2h - 2` (total vertices across `outer` and every hole, `h` holes) — the hole-generalized form of `triangulate_polygon`'s `polygon.len() - 2`, reducing to it at `h = 0`. Checked defensively before returning `Ok`, same postcondition discipline as `triangulate_polygon`. |
 
 ## Algorithm-level tie-breaking (not yet applicable)
 

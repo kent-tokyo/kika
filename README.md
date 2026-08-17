@@ -164,15 +164,24 @@ in pure Rust, that's what Phase 1 of Kika is.
   on Phase 6C's CDT: constrain every polygon edge, then discard the
   concave-pocket faces outside the polygon (for a non-convex input) via a
   purely topological flood fill from one interior seed face — never a
-  constructed point such as a centroid. No holes, no Steiner points
-  (every output vertex is one of the polygon's own), self-intersecting
-  input rejected as a typed `PolygonTriangulationError`, both CCW and CW
-  input accepted, deterministic. See
-  [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md) for the full
-  scope table, including a caveat for checking the result with
-  `Triangulation2::validate_topology()` (its Euler-characteristic check
-  assumes full convex-hull coverage, which a non-convex polygon's
+  constructed point such as a centroid. No Steiner points (every output
+  vertex is one of the polygon's own), self-intersecting input rejected
+  as a typed `PolygonTriangulationError`, both CCW and CW input accepted,
+  deterministic. See [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)
+  for the full scope table, including a caveat for checking the result
+  with `Triangulation2::validate_topology()` (its Euler-characteristic
+  check assumes full convex-hull coverage, which a non-convex polygon's
   triangulation deliberately doesn't have).
+* `triangulate_polygon_with_holes` — polygon triangulation with holes,
+  generalizing `triangulate_polygon`'s own algorithm rather than a new
+  one: a hole's boundary is just more constrained edges the same flood
+  fill stops at. A hole nested inside another hole is out of scope
+  (typed error, not partial support); every other rejected input (a hole
+  outside the boundary, touching or crossing it, or touching/crossing
+  another hole) is likewise a typed `PolygonTriangulationError`, never a
+  panic. `Polygon2::relation_to`/`PointPolygonRelation` (an exact
+  point-in-polygon predicate, new alongside this) backs the hole-containment
+  check.
 
 All four predicates complete v0.1's robust-predicate scope; the primitives,
 intersections, polygon, convex hull, and Delaunay triangulation above
@@ -253,9 +262,13 @@ let constrained_edge_count = cdt
 assert_eq!(constrained_edge_count, constraints.len());
 ```
 
-Simple-polygon triangulation — no holes, no Steiner points, built on the
+Simple-polygon triangulation — no Steiner points, built on the
 constrained Delaunay above (also doctested, as
-[`triangulate_polygon`'s own doc example](src/triangulation/polygon.rs)):
+[`triangulate_polygon`'s own doc example](src/triangulation/polygon.rs)).
+`triangulate_polygon` covers a single boundary ring (no holes);
+`triangulate_polygon_with_holes` extends the same algorithm to a boundary
+plus zero or more hole rings (still no Steiner points, no new
+construction):
 
 ```rust
 use kika::{Point2, Polygon2, triangulate_polygon};
@@ -287,6 +300,8 @@ More, runnable via `cargo run --example <name>`, in [`examples/`](examples/):
   specific (possibly non-Delaunay) edge to survive
 * [`polygon_triangulation`](examples/polygon_triangulation.rs) — a
   non-convex polygon, with triangle-count/CCW/area checks
+* [`polygon_triangulation_with_holes`](examples/polygon_triangulation_with_holes.rs) —
+  a boundary with two separate holes cut out
 
 ## WASM
 
@@ -322,7 +337,8 @@ error enums (`KikaError`, `CdtError`, `PolygonTriangulationError`) are
 | Delaunay triangulation | Implemented — fully exact, no synthetic coordinates |
 | Triangulation adjacency (vertex/edge/face queries) | Implemented — `VertexId`/`EdgeId`/`FaceId`, neighbor/boundary queries, internal topology validator (ADR-006) |
 | Constrained Delaunay | Implemented — narrow scope: non-crossing constraints between existing vertices only, no Steiner points (Phase 6C) |
-| Simple polygon triangulation | Implemented — narrow scope: no holes, no Steiner points, self-intersecting input rejected (Phase 6D) |
+| Simple polygon triangulation | Implemented — no Steiner points, self-intersecting input rejected (Phase 6D); holes supported (0.4.0, `triangulate_polygon_with_holes`) — nested holes out of scope, typed error |
+| Voronoi diagram | Not implemented |
 | Polygon Boolean | Not implemented — exactness model still open, see ADR-004 |
 | 3D mesh operations | Not implemented |
 

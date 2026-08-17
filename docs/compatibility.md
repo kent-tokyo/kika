@@ -71,4 +71,6 @@ Public API surface as of Phase 6D:
 `VertexId`, `EdgeId`, `FaceId` (Phase 6B adjacency structure),
 `ConstrainedTriangulation2`, `CdtError`, `constrained_delaunay2`,
 `validate_cdt_topology` (Phase 6C), `PolygonTriangulationError`,
-`triangulate_polygon` (Phase 6D).
+`triangulate_polygon` (Phase 6D), `PointPolygonRelation`,
+`triangulate_polygon_with_holes` (0.4.0, in progress — see
+`ROADMAP.md`, untracked/internal).

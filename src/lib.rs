@@ -31,5 +31,6 @@ pub use primitives::{
 };
 pub use triangulation::{
     CdtError, ConstrainedTriangulation2, EdgeId, FaceId, PolygonTriangulationError, Triangulation2,
-    VertexId, constrained_delaunay2, delaunay2, triangulate_polygon, validate_cdt_topology,
+    VertexId, constrained_delaunay2, delaunay2, triangulate_polygon,
+    triangulate_polygon_with_holes, validate_cdt_topology,
 };
