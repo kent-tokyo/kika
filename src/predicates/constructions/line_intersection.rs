@@ -43,7 +43,7 @@ use crate::primitives::Point2;
 /// cannot stay exact (the true quotient is generally irrational relative
 /// to `f64`), so it is the one place `correctly_rounded_divide` is used.
 ///
-/// # Known limitation: a verified-safe magnitude range, measured not assumed
+/// # Known limitation: a verified-safe *floor*, measured not assumed
 ///
 /// This construction is effectively degree-3 in the input coordinates
 /// (`d1`/`d2` are degree-2 cross products, scaled once more by a
@@ -52,7 +52,7 @@ use crate::primitives::Point2;
 /// wider verified-safe magnitude range. Measured (not assumed) via
 /// `tests/differential/line_intersection.rs`'s magnitude sweep against an
 /// independent correctly-rounded-nearest-`f64` oracle: no failure observed
-/// down through `2^-335` (`~1.4e-101`, 20 random crossings sampled per
+/// down through `2^-335` (`~1.4e-101`, 50 random crossings sampled per
 /// exponent step) — comfortably *wider* than `incircle`'s documented
 /// `~1e-70..1e70` (`docs/numerical-model.md`) — confirming
 /// degree, not "is it a construction vs. a predicate", is what actually
@@ -61,11 +61,55 @@ use crate::primitives::Point2;
 /// "exact-product representability floor") can be crossed, silently
 /// degrading the "exact" claim — accepted and documented, not solved
 /// (matches `incircle`/`insphere` precedent), pending Shewchuk-style
-/// multi-tier adaptive precision (`tasks/todo.md` backlog). The large-
-/// magnitude side is not independently swept here — see
-/// `random_crossings_multiple_scales`'s `1e100` case for the largest
-/// scale exercised.
+/// multi-tier adaptive precision (`tasks/todo.md` backlog).
+///
+/// # Ceiling: guarded by exact rescaling, confirmed necessary by testing
+///
+/// Unlike the floor, the large-magnitude side is not just a documented
+/// limitation — it was a real, confirmed bug. The degree-3 numerator
+/// (`d1*b.x()` etc.) overflows `f64::MAX` for *uniform*-magnitude inputs
+/// around `~5.6e102`, and for *mixed*-magnitude inputs (segments `AB`/`CD`
+/// at different scales `K`/`M`) the relevant quantity is `K^2*M` (or
+/// `M^2*K`), which can overflow even when both `K` and `M` individually
+/// sit far below that uniform threshold — so no single-scalar "safe up to
+/// magnitude X" claim can be correct. `extreme_uniform_magnitude_is_finite`
+/// and `extreme_mixed_magnitude_is_finite` (this module's own tests)
+/// reproduced non-finite (`NaN`) output from exactly this mechanism before
+/// this guard existed. Fixed by rescaling all four input points by an
+/// exact power of two (lossless in IEEE-754 — an exponent shift, no
+/// rounding) whenever any coordinate exceeds [`RESCALE_THRESHOLD`],
+/// computing on the rescaled points, then scaling the correctly-rounded
+/// result back by the same power of two — the same technique this
+/// module's floor-side limitation above already documents as the known
+/// upgrade path, applied here in the other direction. Scaling four
+/// coplanar points by `s` scales their line intersection by `s` too, so
+/// this is exact, not approximate. No public API change.
 pub(crate) fn line_intersection(a: Point2, b: Point2, c: Point2, d: Point2) -> Point2 {
+    let max_coord = [a.x(), a.y(), b.x(), b.y(), c.x(), c.y(), d.x(), d.y()]
+        .into_iter()
+        .fold(0.0_f64, |acc, v| acc.max(v.abs()));
+
+    if max_coord <= RESCALE_THRESHOLD {
+        return line_intersection_raw(a, b, c, d);
+    }
+
+    let k = max_coord.log2().ceil() as i32;
+    let s = 2f64.powi(-k);
+    let scale = |p: Point2| Point2::new_unchecked(p.x() * s, p.y() * s);
+    let scaled = line_intersection_raw(scale(a), scale(b), scale(c), scale(d));
+    let inv_s = 2f64.powi(k);
+    Point2::new_unchecked(scaled.x() * inv_s, scaled.y() * inv_s)
+}
+
+/// Coordinate-magnitude threshold above which [`line_intersection`]
+/// rescales its inputs — see its doc comment's "Ceiling" section.
+/// `1e90` sits comfortably below the measured `~5.6e102` uniform-magnitude
+/// ceiling, and `(1e90)^3 = 1e270` stays well under `f64::MAX` even for
+/// the worst-case mixed-magnitude product (`K^2*M`), since every
+/// coordinate is bounded by this same threshold once rescaling triggers.
+const RESCALE_THRESHOLD: f64 = 1e90;
+
+fn line_intersection_raw(a: Point2, b: Point2, c: Point2, d: Point2) -> Point2 {
     let d1 = orient2d_expansion(c, d, a);
     let d2 = orient2d_expansion(c, d, b);
 
@@ -320,6 +364,120 @@ mod tests {
     /// near-parallel angles, both across several magnitude scales. If this
     /// ever creeps toward the `0..8` bound, the bound (or the algorithm) needs
     /// revisiting — see the doc comment on `correctly_rounded_divide`.
+    /// `true` iff `(a,b)` and `(c,d)` are a genuine `Proper` crossing,
+    /// checked via this file's own exact `orient2d_expansion`/
+    /// `expansion_sign` machinery (not a raw-`f64` product, which could
+    /// itself misreport at extreme scale) -- mirrors
+    /// `intersections::segment2::classify`'s own opposite-sign
+    /// straddling test.
+    fn is_proper_shape(a: Point2, b: Point2, c: Point2, d: Point2) -> bool {
+        let d1 = expansion_sign(&orient2d_expansion(c, d, a));
+        let d2 = expansion_sign(&orient2d_expansion(c, d, b));
+        let d3 = expansion_sign(&orient2d_expansion(a, b, c));
+        let d4 = expansion_sign(&orient2d_expansion(a, b, d));
+        d1 != Sign::Zero
+            && d2 != Sign::Zero
+            && d3 != Sign::Zero
+            && d4 != Sign::Zero
+            && d1 != d2
+            && d3 != d4
+    }
+
+    /// A deterministic `Proper`-crossing pair: `AB` horizontal spanning
+    /// `[-m, m]`, `CD` diagonal spanning `[-k, k]`, crossing exactly at
+    /// the origin (their shared midpoint) regardless of the `k`/`m`
+    /// ratio -- mathematically guaranteed proper for any `k, m > 0`
+    /// (verified below via the exact machinery too, as a check on that
+    /// machinery itself at extreme scale, not just an assumption). The
+    /// true `d1`/`d2` value is `+-2*m*k`, so `scale_expansion(d1, b.x())`
+    /// etc. build the same order-of-magnitude intermediate products a
+    /// generic crossing at this scale would, even though the final
+    /// coordinate (the origin) happens to be a "nice" number -- what's
+    /// being tested is whether those *intermediate* products overflow,
+    /// not the final value.
+    fn deterministic_crossing(m: f64, k: f64) -> (Point2, Point2, Point2, Point2) {
+        (p(-m, 0.0), p(m, 0.0), p(-k, -k), p(k, k))
+    }
+
+    /// Verifies the overflow-ceiling analysis in this module's doc
+    /// comment: sweeps *uniform* coordinate magnitude up through where
+    /// the degree-3 numerator (`d1*b.x()` etc.) is expected to overflow
+    /// `f64::MAX` (`~5.6e102`) and past where `orient2d_expansion`'s own
+    /// degree-2 product overflows (`~1.3e154`, beyond which a case may
+    /// stop being `Proper`-shaped at all -- skipped via `is_proper_shape`,
+    /// not assumed). Not previously tested: `line_intersection`'s doc
+    /// comment explicitly noted the large-magnitude side "is not
+    /// independently swept here".
+    #[test]
+    fn extreme_uniform_magnitude_is_finite() {
+        let mut checked = 0u32;
+        for exp in [
+            90, 95, 100, 102, 103, 105, 110, 120, 130, 140, 150, 153, 155, 160,
+        ] {
+            let scale = 10f64.powi(exp);
+            let (a, b, c, d) = deterministic_crossing(scale, scale);
+            if !is_proper_shape(a, b, c, d) {
+                continue;
+            }
+            checked += 1;
+            let q = line_intersection(a, b, c, d);
+            assert!(
+                q.x().is_finite() && q.y().is_finite(),
+                "line_intersection produced a non-finite coordinate at uniform magnitude 1e{exp}: {q:?}"
+            );
+        }
+        assert!(
+            checked > 0,
+            "no case in the sweep was even Proper-shaped -- test is vacuous"
+        );
+        eprintln!(
+            "line_intersection: uniform-magnitude ceiling sweep checked {checked} cases, all finite"
+        );
+    }
+
+    /// Verifies the *mixed*-magnitude failure mode the uniform-magnitude
+    /// analysis alone misses: for segments at different scales `K`/`M`,
+    /// the numerator's relevant quantity is `K^2*M` (or `M^2*K`), which
+    /// can overflow `f64::MAX` even when both `K` and `M` individually
+    /// sit far below the uniform-magnitude ceiling (`~5.6e102`). Any
+    /// "safe up to magnitude X" claim would be wrong by construction
+    /// without this check.
+    #[test]
+    fn extreme_mixed_magnitude_is_finite() {
+        let mut checked = 0u32;
+        for &(k_exp, m_exp) in &[
+            (120, 70),
+            (150, 50),
+            (100, 100),
+            (130, 100),
+            (140, 90),
+            (160, 40),
+            (154, 60),
+            (70, 120),
+            (50, 150),
+        ] {
+            let k = 10f64.powi(k_exp);
+            let m = 10f64.powi(m_exp);
+            let (a, b, c, d) = deterministic_crossing(m, k);
+            if !is_proper_shape(a, b, c, d) {
+                continue;
+            }
+            checked += 1;
+            let q = line_intersection(a, b, c, d);
+            assert!(
+                q.x().is_finite() && q.y().is_finite(),
+                "line_intersection produced a non-finite coordinate at mixed magnitude k=1e{k_exp}, m=1e{m_exp}: {q:?}"
+            );
+        }
+        assert!(
+            checked > 0,
+            "no case in the sweep was even Proper-shaped -- test is vacuous"
+        );
+        eprintln!(
+            "line_intersection: mixed-magnitude ceiling sweep checked {checked} cases, all finite"
+        );
+    }
+
     #[test]
     fn divide_loop_iteration_bound_is_generous() {
         MAX_DIVIDE_ITERS.with(|c| c.set(0));

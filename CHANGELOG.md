@@ -19,6 +19,23 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   constraint to become an edge of). See `tests/regression/cdt.rs` and
   `docs/degeneracy-policy.md`'s CDT table.
 
+- `predicates::line_intersection` (used internally by `segment_intersection`'s
+  `Proper` case) could return a non-finite (`NaN`) `Point2`, breaking the
+  crate-wide "a constructed `Point2` is always finite" invariant, at
+  coordinate magnitudes the construction's degree-3 numerator overflows
+  `f64::MAX` — uniform-magnitude inputs around `~5.6e102`, and a sharper
+  mixed-magnitude case (segments at different scales `K`/`M`, where the
+  relevant quantity `K²·M` can overflow even when both scales individually
+  sit far below that threshold). Previously documented only as "not
+  independently swept", not fixed. Both mechanisms confirmed by dedicated
+  tests before the fix (`NaN` reproduced at uniform `1e103` and mixed
+  `k=1e130, m=1e100`). Fixed with exact power-of-two rescaling (lossless —
+  an exponent shift, no rounding) applied whenever any input coordinate
+  exceeds `1e90`; verified both finite and still correctly rounded (against
+  the same `BigRational` oracle used elsewhere) up through `~3.3e150`. No
+  public API change. See `docs/numerical-model.md`'s Phase 5 section and
+  `tasks/lessons.md`.
+
 ## [0.2.0] - 2026-08-17
 
 A robust 2D kernel with exact predicates, 2D convex hull, Delaunay

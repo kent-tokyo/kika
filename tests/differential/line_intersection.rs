@@ -277,3 +277,73 @@ fn magnitude_floor_sweep() {
         "safe range shrank unexpectedly: only verified down to 2^{last_safe_exp}"
     );
 }
+
+/// Deterministic `Proper`-crossing pair at magnitude `scale` (both
+/// segments the same scale): `AB` horizontal spanning `[-scale, scale]`,
+/// `CD` diagonal spanning `[-scale, scale]`, crossing at the origin.
+/// Mirrors `predicates::constructions::line_intersection`'s own internal
+/// test helper of the same shape. Deliberately **not** `crossing_at`:
+/// that helper's retry loop checks `denom.is_finite()` via a raw `f64`
+/// product, which itself overflows near the same ceiling this test
+/// sweeps toward, risking an infinite retry loop rather than a clean
+/// stop.
+fn deterministic_crossing(scale: f64) -> (P2, P2, P2, P2) {
+    (
+        (-scale, 0.0),
+        (scale, 0.0),
+        (-scale, -scale),
+        (scale, scale),
+    )
+}
+
+/// Verifies both finiteness and *correctness* (against the same
+/// `BigRational` oracle every other test in this file uses) through the
+/// public `segment_intersection` API, sweeping upward past where the
+/// construction's degree-3 numerator was found to overflow (`~5.6e102`,
+/// fixed via exact power-of-two rescaling — see
+/// `predicates::constructions::line_intersection`'s doc comment).
+/// Mirrors `magnitude_floor_sweep`'s "report the boundary, assert a
+/// comfortable margin" style, swept upward instead of downward, and
+/// complements `predicates::constructions::line_intersection`'s own
+/// internal finiteness-only sweep by additionally checking the *value* is
+/// still correctly rounded, not just finite.
+#[test]
+fn magnitude_ceiling_sweep() {
+    let mut last_safe_exp = 0i32;
+    for exp in (0..=1020).step_by(20) {
+        let scale = 2.0_f64.powi(exp);
+        let (a, b, c, d) = deterministic_crossing(scale);
+        let (ex, ey) = oracle_intersection(a, b, c, d);
+        let s1 = Segment2::new(
+            Point2::new(a.0, a.1).unwrap(),
+            Point2::new(b.0, b.1).unwrap(),
+        );
+        let s2 = Segment2::new(
+            Point2::new(c.0, c.1).unwrap(),
+            Point2::new(d.0, d.1).unwrap(),
+        );
+        let got = match segment_intersection(s1, s2) {
+            SegmentIntersection2::Point(p) => p,
+            // Stopped being classified Proper at this scale -- report the
+            // boundary already reached rather than treating this as a
+            // failure of the rescaling fix itself.
+            _ => break,
+        };
+        if !got.x().is_finite() || !got.y().is_finite() {
+            break;
+        }
+        if !is_correctly_rounded(got.x(), &ex) || !is_correctly_rounded(got.y(), &ey) {
+            break;
+        }
+        last_safe_exp = exp;
+    }
+    eprintln!(
+        "line_intersection: verified finite + correctly rounded up through 2^{last_safe_exp} \
+         (~{:e})",
+        2.0_f64.powi(last_safe_exp)
+    );
+    assert!(
+        last_safe_exp >= 300,
+        "ceiling shrank unexpectedly: only verified up through 2^{last_safe_exp}"
+    );
+}

@@ -1,7 +1,10 @@
 //! Adversarial and property tests for segment intersection. See
 //! `tests/adversarial/orient2d.rs` for the rationale.
 
-use kika::{Point2, Segment2, SegmentIntersectionKind, segment_intersection_kind};
+use kika::{
+    Point2, Segment2, SegmentIntersection2, SegmentIntersectionKind, segment_intersection,
+    segment_intersection_kind,
+};
 
 fn p(x: f64, y: f64) -> Point2 {
     Point2::new(x, y).unwrap()
@@ -99,4 +102,25 @@ fn extreme_large_scale_does_not_panic() {
     let s1 = s(0.0, 0.0, scale, scale);
     let s2 = s(0.0, scale, scale, 0.0);
     let _ = segment_intersection_kind(s1, s2);
+}
+
+/// Unlike the two tests above (which only exercise `segment_intersection_kind`
+/// -- classification, which never builds a coordinate), this calls the
+/// `Point`-constructing `segment_intersection` at scales that used to
+/// overflow the construction's degree-3 numerator before it gained exact
+/// power-of-two rescaling (see
+/// `predicates::constructions::line_intersection`'s doc comment) -- a
+/// real gap this test closes, not just a hypothetical one.
+#[test]
+fn extreme_large_scale_proper_point_is_finite() {
+    for &scale in &[1e103_f64, 1e140, 1e150] {
+        let s1 = s(-scale, 0.0, scale, 0.0);
+        let s2 = s(-scale, -scale, scale, scale);
+        if let SegmentIntersection2::Point(p) = segment_intersection(s1, s2) {
+            assert!(
+                p.x().is_finite() && p.y().is_finite(),
+                "non-finite Proper intersection point at scale {scale}: {p:?}"
+            );
+        }
+    }
 }

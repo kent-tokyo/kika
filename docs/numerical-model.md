@@ -499,12 +499,32 @@ documented above applies (silently degrading the "exact" claim, not
 solved, matching `incircle`/`insphere` precedent). See `tasks/lessons.md`
 for the meta-lesson about predicting this the wrong way round.
 
-**Known gap, unchanged from before this construction existed:** the
-precondition (non-parallel lines) is established by the caller
-(`segment_intersection`'s `Proper` classification already guarantees this),
-not re-checked here. For astronomically extreme, near-parallel inputs
-outside the measured magnitude range, the result's finiteness is not
-independently guaranteed — documented, not silently assumed away.
+**Ceiling, found and fixed, not just documented.** Unlike the floor above,
+the large-magnitude side was a real, confirmed bug, not a documented
+limitation. The degree-3 numerator (`d1*b.x()` etc.) overflows `f64::MAX`
+for *uniform*-magnitude inputs around `~5.6e102`; for *mixed*-magnitude
+inputs (segments `AB`/`CD` at different scales `K`/`M`) the relevant
+quantity is `K²·M` (or `M²·K`), which can overflow even when both `K` and
+`M` individually sit far below that uniform threshold — so no single-scalar
+"safe up to magnitude X" claim could ever have been correct.
+`extreme_uniform_magnitude_is_finite` and `extreme_mixed_magnitude_is_finite`
+(`src/predicates/constructions/line_intersection.rs`) reproduced non-finite
+(`NaN`) output from exactly this mechanism. Fixed by rescaling all four
+input points by an exact power of two (lossless — an exponent shift, no
+rounding) whenever any coordinate exceeds `RESCALE_THRESHOLD` (`1e90`),
+computing on the rescaled points, then scaling the correctly-rounded result
+back by the same power of two — the same technique the floor-side
+limitation above already named as the known (then-unimplemented) upgrade
+path, applied here in the other direction. `tests/differential/line_intersection.rs`'s
+`magnitude_ceiling_sweep` confirms both finiteness *and* correctness
+(against the same `BigRational` oracle) up through `2^500` (`~3.3e150`) —
+comfortably past the old `~5.6e102` failure point, up to where
+`segment_intersection`'s own classification stops reliably returning
+`Proper` at all, not a remaining limitation of this construction itself.
+
+**Known gap, unchanged:** the precondition (non-parallel lines) is
+established by the caller (`segment_intersection`'s `Proper` classification
+already guarantees this), not re-checked here.
 
 ## What is *not* claimed
 

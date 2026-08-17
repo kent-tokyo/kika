@@ -301,3 +301,24 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   caller. Confirmed by writing the regression tests against the unfixed
   code first and watching all 5 panic at the exact `.expect` line before
   applying the fix. See `tests/regression/cdt.rs`.
+- Real bug, found by review then confirmed empirically rather than
+  assumed: `line_intersection`'s doc comment explicitly flagged the
+  large-magnitude side as "not independently swept" — a documented gap,
+  not a claimed guarantee. A review pass reasoned through the actual
+  arithmetic (the degree-3 numerator `d1*b.x()` etc. can overflow
+  `f64::MAX`) and predicted two distinct failure mechanisms: uniform-magnitude
+  overflow around `~5.6e102`, and a sharper mixed-magnitude one (`K²·M`
+  overflowing even when both `K` and `M` individually sit far below that
+  threshold) that a first-pass analysis missed entirely and that changes
+  the *shape* of any correct fix (a joint condition, not a scalar "safe up
+  to X" claim). Both were then confirmed real, not just plausible, by two
+  targeted tests (`extreme_uniform_magnitude_is_finite`,
+  `extreme_mixed_magnitude_is_finite`) that reproduced actual `NaN` output
+  before any fix existed. Fixed with exact power-of-two rescaling — a
+  technique this crate had already named as the known upgrade path for
+  the analogous *floor*-side problem, just never applied to the ceiling
+  side. Lesson: a documented "not swept" limitation is not the same as
+  "assumed safe" — it's an open question, and the second (mixed-magnitude)
+  failure mode here was only found by actually deriving the overflow
+  condition algebraically, not by pattern-matching against the first
+  (uniform-magnitude) one that seemed like the obvious story.
