@@ -24,7 +24,7 @@
 - [x] `docs/compatibility.md` and this file updated from "builds, not
       executed" to "executed under Node.js" for wasm32.
 
-## Done (0.4.0: polygon triangulation with holes — implemented, not yet released)
+## Done (0.4.0: polygon triangulation with holes, wasm32 execution testing — released 2026-08-18)
 
 - [x] `Polygon2::relation_to`/`PointPolygonRelation`: exact point-in-polygon
       predicate (crossing-number/ray-casting via `orient2d` +
@@ -46,14 +46,21 @@
       error. Verified against all 9 fixtures + acceptance criteria from
       `ROADMAP.md`'s (internal) 0.4.0 spec — see that file for exactly
       what shipped vs. what's still deliberately deferred.
-- [x] CHANGELOG (`[Unreleased]`), `docs/degeneracy-policy.md`,
-      `docs/compatibility.md`, README (Implemented today/Maturity
-      table/examples list), and a new runnable example
-      (`examples/polygon_triangulation_with_holes.rs`) all updated to
-      match. Version **not** bumped, `[Unreleased]` **not** renamed to
-      `[0.4.0]` — starting an actual release round is a separate decision
-      (see `ROADMAP.md`'s "0.4.0 — implemented locally, not yet
-      released" note).
+- [x] `wasm-bindgen-test` added as a `wasm32`-only dev-dependency;
+      `tests/wasm.rs` runs 10 load-bearing cases under actual Node.js
+      execution (`wasm-pack test --node --release`), not just a wasm32
+      build; new independent CI job `wasm-test-node`.
+- [x] CHANGELOG, `docs/degeneracy-policy.md`, `docs/compatibility.md`,
+      README (all 3 languages — closed real translation drift in
+      `README_ja.md`/`README_zh.md`, which had never gotten the
+      `triangulate_polygon_with_holes` paragraph), and two new runnable
+      examples updated to match.
+- [x] **Released**: `Cargo.toml` bumped to 0.4.0, `CHANGELOG.md`
+      `[0.4.0] - 2026-08-18`, pushed, CI green (10/10 jobs including
+      `wasm-test-node`'s first real run), published to crates.io,
+      confirmed via a fresh fixture build against the published version
+      (including a nested-hole rejection check), `v0.4.0` tag + GitHub
+      Release, all SHAs (local/origin/tag) consistent.
 
 ## Done (0.3.0: bug-check-and-refactoring pass + release)
 
