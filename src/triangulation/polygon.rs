@@ -19,6 +19,7 @@ use crate::primitives::Point2;
 /// Why [`triangulate_polygon`] rejected an input or failed to build a
 /// result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PolygonTriangulationError {
     /// Fewer than 3 vertices — see [`PolygonBasicValidity::TooFewVertices`].
     TooFewVertices,

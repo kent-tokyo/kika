@@ -28,6 +28,7 @@ use crate::primitives::{Point2, Segment2};
 /// Why [`constrained_delaunay2`] rejected an input or failed to build a
 /// result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CdtError {
     /// A constraint referenced an index `>= points.len()`, or `points`
     /// itself contains a duplicate coordinate — the latter makes

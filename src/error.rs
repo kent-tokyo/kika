@@ -6,6 +6,7 @@ use core::fmt;
 /// of a validated type (e.g. [`crate::Point2::new`]) can fail. See
 /// `docs/adr/ADR-003-public-primitive-types.md`.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum KikaError {
     /// A coordinate was NaN or infinite.
     NonFiniteCoordinate,

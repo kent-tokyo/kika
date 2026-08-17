@@ -352,6 +352,7 @@ pub(super) fn assemble_triangulation(
 /// rules require, not further).
 #[doc(hidden)]
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum TopologyError {
     /// A face is not counterclockwise (or is degenerate).
     FaceNotCcw(FaceId),
