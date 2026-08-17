@@ -15,7 +15,7 @@
 //! [`super::delaunay2`] does, and touches ADR-004's construction model not
 //! at all.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use super::delaunay2::{TopologyError, assemble_triangulation};
 use super::ids::{EdgeId, FaceId, VertexId};
@@ -107,27 +107,27 @@ impl ConstrainedTriangulation2 {
 ///    [`VertexId`] by coordinate — `delaunay2` returns vertices in its own
 ///    canonical sorted order, not input order.
 /// 3. For each constraint, if it is not already a triangulation edge,
-///    realize it by repeatedly finding a triangulation edge that properly
-///    crosses the constraint segment (via [`segment_intersection_kind`],
-///    reusing the same exact primitive `segment_intersection` itself
-///    uses) and flipping it — never constructing a new coordinate, only
-///    relabeling existing triangles' vertex triples. This is the standard
-///    diagonal-swap / Sloan-style segment recovery, simplified: instead of
-///    a persistent crossing-edge queue, each iteration rescans for a
-///    currently-crossing, currently-flippable edge, trading a little
-///    efficiency for a much smaller, easier-to-verify implementation —
-///    appropriate for this scope's small expected inputs (AGENTS.md's own
-///    "don't optimize before it's needed" principle).
+///    realize it via `insert_constraint_edge`'s persistent FIFO queue of
+///    crossing edges (via [`segment_intersection_kind`], reusing the same
+///    exact primitive `segment_intersection` itself uses) — the standard
+///    diagonal-swap / Sloan-style segment recovery, never constructing a
+///    new coordinate, only relabeling existing triangles' vertex triples.
+///    See that function's own doc comment for why a full rescan each
+///    iteration (an earlier, simpler-looking version of this function)
+///    is not just less efficient but not even guaranteed to terminate.
 /// 4. Once every constraint edge exists, restore local Delaunay-ness on
 ///    every **unconstrained** edge by the same bounded flipping — a
 ///    constraint edge is never a flip candidate, by construction.
 ///
-/// Both flip passes are bounded (`4 * face_count + 16` flips per
+/// Both flip passes are bounded (`4 * face_count + 16` loop passes per
 /// constraint, or per full restoration pass) rather than looping until
 /// convergence with no ceiling — the same "measured, not assumed"
 /// discipline as Phase 5's `correctly_rounded_divide` loop bound. Hitting
 /// the bound returns [`CdtError::ConstraintInsertionFailed`] rather than
-/// hanging or returning a silently-wrong result.
+/// hanging or returning a silently-wrong result — as does a constraint
+/// whose segment passes exactly through a third, unrelated input vertex
+/// (no single edge can realize that, and this scope does not auto-split
+/// it into sub-constraints).
 pub fn constrained_delaunay2(
     points: &[Point2],
     constraints: &[(usize, usize)],
@@ -236,7 +236,9 @@ fn edge_exists(faces: &[[VertexId; 3]], u: VertexId, v: VertexId) -> bool {
 }
 
 /// Every currently-existing triangulation edge that properly crosses
-/// segment `(u, v)`, as `(face_a, face_b)` pairs sharing that edge.
+/// segment `(u, v)`, as canonical vertex pairs (not face pairs — a
+/// vertex pair stays valid to re-look-up after other flips change
+/// adjacency, where a captured `FaceId` pair could go stale).
 ///
 /// `constrained_pairs` (edges already realized for an earlier constraint
 /// in this same call) are never returned as candidates, even though the
@@ -246,23 +248,22 @@ fn edge_exists(faces: &[[VertexId; 3]], u: VertexId, v: VertexId) -> bool {
 /// realized edge properly crossed by the other's insertion path either.
 /// This filter is defense in depth against that argument being wrong
 /// (or violated by a future edit), not a case this scope expects to hit.
-fn crossing_faces(
+fn crossing_edges(
     faces: &[[VertexId; 3]],
     face_neighbors: &[[Option<FaceId>; 3]],
     vertex_pos: &[Point2],
     constrained_pairs: &HashSet<(VertexId, VertexId)>,
     u: VertexId,
     v: VertexId,
-) -> Vec<(FaceId, FaceId)> {
+) -> Vec<(VertexId, VertexId)> {
     let seg_uv = Segment2::new(vertex_pos[u.raw() as usize], vertex_pos[v.raw() as usize]);
     let mut found = Vec::new();
     let mut seen: HashSet<(VertexId, VertexId)> = HashSet::new();
     for (i, face) in faces.iter().enumerate() {
-        let fa = FaceId::new(i as u32);
         for k in 0..3 {
-            let Some(fb) = face_neighbors[i][k] else {
+            if face_neighbors[i][k].is_none() {
                 continue;
-            };
+            }
             let (a, b) = (face[(k + 1) % 3], face[(k + 2) % 3]);
             let key = canon(a, b);
             if !seen.insert(key) {
@@ -273,11 +274,34 @@ fn crossing_faces(
             }
             let seg_ab = Segment2::new(vertex_pos[a.raw() as usize], vertex_pos[b.raw() as usize]);
             if segment_intersection_kind(seg_uv, seg_ab) == SegmentIntersectionKind::Proper {
-                found.push((fa, fb));
+                found.push(key);
             }
         }
     }
     found
+}
+
+/// The two faces currently incident to the (still-existing) edge `(a,
+/// b)`, or `None` if `(a, b)` is no longer a triangulation edge (e.g. it
+/// was itself flipped away since being queued).
+fn adjacent_faces_of_edge(
+    faces: &[[VertexId; 3]],
+    face_neighbors: &[[Option<FaceId>; 3]],
+    a: VertexId,
+    b: VertexId,
+) -> Option<(FaceId, FaceId)> {
+    for (i, face) in faces.iter().enumerate() {
+        for k in 0..3 {
+            let Some(fb) = face_neighbors[i][k] else {
+                continue;
+            };
+            let (x, y) = (face[(k + 1) % 3], face[(k + 2) % 3]);
+            if (x, y) == (a, b) || (x, y) == (b, a) {
+                return Some((FaceId::new(i as u32), fb));
+            }
+        }
+    }
+    None
 }
 
 /// The two vertices shared by `fa`/`fb`'s triangles, and each triangle's
@@ -390,6 +414,28 @@ fn flip_bound(face_count: usize) -> usize {
     4 * face_count + 16
 }
 
+/// Realizes `(u, v)` as a triangulation edge by flipping every existing
+/// edge that properly crosses it — the standard Sloan-style segment
+/// recovery, via a **persistent FIFO queue** of crossing edges (not a
+/// full rescan-and-pick-first each iteration, which this function
+/// originally did and which an earlier version of this doc comment
+/// called just a performance simplification of the "same" algorithm).
+///
+/// That rescan-and-pick-first approach is not just slower — it isn't
+/// even guaranteed to terminate: always re-selecting "whichever crossing
+/// edge appears first in array-index order" can settle into a 2-cycle,
+/// repeatedly flipping the same pair of diagonals back and forth without
+/// ever making progress, found via sanity benchmarking on a 300-point
+/// random cloud (a single, otherwise-unremarkable constraint). See
+/// `tasks/lessons.md`.
+///
+/// The queue-based fix relies on one fact that only holds when popping
+/// (not rescanning): flipping edge `(a, b)` to its only other diagonal
+/// `(p, q)` changes the *existence* of exactly those two edges — every
+/// other edge's endpoints, and therefore its crossing status against
+/// `(u, v)`, is untouched. So after the initial scan, no edge other than
+/// the fresh `(p, q)` can newly start (or stop) crossing `(u, v)`; the
+/// queue only ever needs `(p, q)` appended, never a full rescan.
 fn insert_constraint_edge(
     faces: &mut [[VertexId; 3]],
     face_neighbors: &mut [[Option<FaceId>; 3]],
@@ -402,20 +448,59 @@ fn insert_constraint_edge(
         return Ok(());
     }
 
+    let mut queue: VecDeque<(VertexId, VertexId)> =
+        crossing_edges(faces, face_neighbors, vertex_pos, constrained_pairs, u, v)
+            .into_iter()
+            .collect();
+    let seg_uv = Segment2::new(vertex_pos[u.raw() as usize], vertex_pos[v.raw() as usize]);
+
+    // `bound` limits total loop passes (flips plus not-yet-flippable
+    // retries), not just successful flips -- a requeue-without-flipping
+    // pass still consumes one. `flips` counts actual `flip_edge` calls;
+    // `passes` counts total loop iterations; both are measured (not just
+    // the one `bound` is named after) by
+    // `flip_count_stays_well_below_the_bound`.
     let bound = flip_bound(faces.len());
-    for iter in 0..bound {
-        if edge_exists(faces, u, v) {
-            record_cdt_flips(iter as u32);
+    let mut flips = 0u32;
+    for passes in 1..=bound as u32 {
+        let Some((a, b)) = queue.pop_front() else {
+            // An empty queue means every *found* crossing is resolved,
+            // not that (u, v) itself now exists -- e.g. if (u, v) passes
+            // exactly through a third input vertex w, edges incident to w
+            // are classified EndpointTouch/CollinearTouch (never Proper),
+            // so they never entered the crossing set at all, and nothing
+            // here would ever realize (u, v). Confirm before declaring
+            // success.
+            if !edge_exists(faces, u, v) {
+                return Err(CdtError::ConstraintInsertionFailed);
+            }
+            record_cdt_flips(flips);
+            record_cdt_passes(passes);
+            return Ok(());
+        };
+        let Some((fa, fb)) = adjacent_faces_of_edge(faces, face_neighbors, a, b) else {
+            // Already resolved (flipped away) as some other edge's side
+            // effect -- not expected given the argument above (no flip
+            // touches an edge other than the one popped and its fresh
+            // replacement), kept as a defensive skip rather than a panic.
+            continue;
+        };
+        if !can_flip(faces, vertex_pos, fa, fb) {
+            queue.push_back((a, b));
+            continue;
+        }
+        let (_, _, p, q) = shared_and_apex(faces, fa, fb);
+        flip_edge(faces, face_neighbors, fa, fb);
+        flips += 1;
+        if (p == u && q == v) || (p == v && q == u) {
+            record_cdt_flips(flips);
+            record_cdt_passes(passes);
             return Ok(());
         }
-        let crossing = crossing_faces(faces, face_neighbors, vertex_pos, constrained_pairs, u, v);
-        let Some(&(fa, fb)) = crossing
-            .iter()
-            .find(|&&(fa, fb)| can_flip(faces, vertex_pos, fa, fb))
-        else {
-            return Err(CdtError::ConstraintInsertionFailed);
-        };
-        flip_edge(faces, face_neighbors, fa, fb);
+        let seg_pq = Segment2::new(vertex_pos[p.raw() as usize], vertex_pos[q.raw() as usize]);
+        if segment_intersection_kind(seg_uv, seg_pq) == SegmentIntersectionKind::Proper {
+            queue.push_back(canon(p, q));
+        }
     }
     Err(CdtError::ConstraintInsertionFailed)
 }
@@ -517,6 +602,11 @@ use std::cell::Cell;
 #[cfg(test)]
 thread_local! {
     static MAX_CDT_FLIPS: Cell<u32> = const { Cell::new(0) };
+    // `insert_constraint_edge`'s `bound` limits total loop passes (flips
+    // plus not-yet-flippable requeues), not flips alone -- tracked
+    // separately since a requeue-heavy run could approach `bound` well
+    // before `MAX_CDT_FLIPS` does.
+    static MAX_CDT_PASSES: Cell<u32> = const { Cell::new(0) };
     static MAX_RESTORE_FLIPS: Cell<u32> = const { Cell::new(0) };
 }
 #[cfg(test)]
@@ -526,6 +616,13 @@ fn record_cdt_flips(n: u32) {
 #[cfg(not(test))]
 #[inline(always)]
 fn record_cdt_flips(_n: u32) {}
+#[cfg(test)]
+fn record_cdt_passes(n: u32) {
+    MAX_CDT_PASSES.with(|c| c.set(c.get().max(n)));
+}
+#[cfg(not(test))]
+#[inline(always)]
+fn record_cdt_passes(_n: u32) {}
 #[cfg(test)]
 fn record_restore_flips(n: u32) {
     MAX_RESTORE_FLIPS.with(|c| c.set(c.get().max(n)));
@@ -544,6 +641,7 @@ mod tests {
 
     fn reset_flip_counters() {
         MAX_CDT_FLIPS.with(|c| c.set(0));
+        MAX_CDT_PASSES.with(|c| c.set(0));
         MAX_RESTORE_FLIPS.with(|c| c.set(0));
     }
 
@@ -711,9 +809,9 @@ mod tests {
     }
 
     /// Two independent non-Delaunay diagonals, each needing its own flip,
-    /// inserted in the same call. Guards against `crossing_faces`
+    /// inserted in the same call. Guards against `crossing_edges`
     /// offering an *already-realized* constraint edge as a flip candidate
-    /// while recovering a later constraint -- see `crossing_faces`' doc
+    /// while recovering a later constraint -- see `crossing_edges`' doc
     /// comment. The two quads are far apart so their local Delaunay
     /// structure can't interact, isolating this from
     /// `constrained_edge_survives_even_when_not_locally_delaunay`'s
@@ -790,6 +888,29 @@ mod tests {
         );
     }
 
+    /// A constraint spanning `(p0, p2)` whose segment passes exactly
+    /// through a third input vertex `p1` -- no single triangulation edge
+    /// can realize it (this narrow scope doesn't auto-split it into two
+    /// sub-constraints, per the module doc comment), and edges incident
+    /// to `p1` never even enter the crossing set (`p1` lying exactly on
+    /// the segment makes them `EndpointTouch`/`CollinearTouch`, not
+    /// `Proper`) -- so the crossing-edge queue can drain to empty
+    /// entirely, without `(p0, p2)` ever becoming an edge. Guards against
+    /// treating "queue empty" as "constraint realized" without checking.
+    #[test]
+    fn constraint_through_a_collinear_third_vertex_is_rejected() {
+        let p0 = p(0.0, 0.0);
+        let p1 = p(2.0, 0.0);
+        let p2 = p(4.0, 0.0);
+        let p3 = p(2.0, 2.0);
+        let p4 = p(2.0, -2.0);
+        let pts = [p0, p1, p2, p3, p4];
+        assert_eq!(
+            constrained_delaunay2(&pts, &[(0, 2)]),
+            Err(CdtError::ConstraintInsertionFailed)
+        );
+    }
+
     #[test]
     fn constraint_already_a_delaunay_edge_is_a_noop_flip() {
         let pts = [p(0.0, 0.0), p(4.0, 0.0), p(0.0, 4.0)];
@@ -854,16 +975,24 @@ mod tests {
         }
 
         let max_cdt = MAX_CDT_FLIPS.with(|c| c.get());
+        let max_cdt_passes = MAX_CDT_PASSES.with(|c| c.get());
         let max_restore = MAX_RESTORE_FLIPS.with(|c| c.get());
         eprintln!(
-            "cdt: measured max insertion flips = {max_cdt}, max restore flips = {max_restore}"
+            "cdt: measured max insertion flips = {max_cdt} (passes = {max_cdt_passes}), max restore flips = {max_restore}"
         );
         // Bound is `4 * face_count + 16`; these grids have at most ~14
         // faces, so the bound is ~72 -- require a comfortable margin below
-        // it, not just "didn't hit the ceiling".
+        // it, not just "didn't hit the ceiling". `bound` limits total loop
+        // *passes* (flips plus not-yet-flippable requeues), so that's the
+        // quantity actually checked against it; flip count (a subset of
+        // passes) is checked with the same margin for the same reason.
         assert!(
             max_cdt < 20,
             "insertion flip count {max_cdt} closer to the bound than expected"
+        );
+        assert!(
+            max_cdt_passes < 20,
+            "insertion pass count {max_cdt_passes} closer to the bound than expected"
         );
         assert!(
             max_restore < 20,

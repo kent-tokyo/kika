@@ -7,6 +7,50 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- Small-scale, fixed-seed sanity benchmarks (`benches/sanity.rs`,
+  `cargo bench --bench sanity`, `harness = false` so it runs on stable):
+  `delaunay2`/`constrained_delaunay2`/`triangulate_polygon` at
+  n=100/300/1000, checking triangle counts and topology validity with a
+  generous (not competitive) time ceiling. Performance has not yet been
+  optimized — this exists to catch a catastrophic algorithmic regression,
+  not to make a speed claim.
+
+### Fixed
+
+- **Two distinct defects in constrained Delaunay segment recovery**,
+  both in Phase 6C's `insert_constraint_edge`, found by the sanity
+  benchmark above on a single long constraint in a 300-point random
+  cloud (no degenerate collinearity involved) — every existing unit test
+  used inputs too small to reach either.
+  1. **Loud, wrong: could oscillate forever instead of converging.** The
+     original rescan-and-pick-first approach could settle into a
+     2-cycle — flip an edge, its replacement is still crossing and still
+     sorts first next scan, flip it back, repeat — never converging
+     until it exhausted the flip bound and returned
+     `CdtError::ConstraintInsertionFailed` for a perfectly realizable
+     constraint. Fixed by implementing the actual standard Sloan-style
+     algorithm: a persistent FIFO queue of crossing edges instead of a
+     full rescan each iteration.
+  2. **Quiet, wrong: introduced by the queue-based rewrite itself.** The
+     rewrite's queue-empty exit returned `Ok(())` without confirming the
+     constraint edge actually exists. For a constraint whose segment
+     passes exactly through a third input vertex (edges incident to that
+     vertex never enter the crossing queue at all — they classify as
+     `EndpointTouch`/`CollinearTouch`, never `Proper`), the queue could
+     drain to empty while the constraint itself was never realized,
+     silently returning success with the constraint missing from
+     `constrained_edges`. Fixed by checking `edge_exists` before
+     declaring success on an empty queue. Caught during review, before
+     being caught empirically: reverting the one-line fix reproduced
+     exactly this — `Ok(...)` with `constrained_edges: {}`.
+  See `tests/regression/cdt.rs` (one test per defect) and
+  `tasks/lessons.md`. Measured flip/pass counts on the existing test
+  suite (max 7 insertion flips / 10 insertion passes / 3 restore flips,
+  vs. the previously-reported 9/3 flip-only numbers — all well under the
+  ~72 bound for those input sizes) now track total loop passes
+  separately from flip count, since the queue-based algorithm's `bound`
+  limits passes (flips plus not-yet-flippable retries), not flips alone.
+
 - Simple polygon triangulation (Phase 6D): `triangulate_polygon`,
   `PolygonTriangulationError`. Built on Phase 6C's CDT: constrain every
   polygon edge, then discard the concave-pocket faces outside the polygon

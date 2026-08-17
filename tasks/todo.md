@@ -156,10 +156,12 @@
       edges, never building a new coordinate — CDT needed zero new
       construction machinery. Both flip passes (constraint recovery,
       unconstrained-Delaunay restoration) are bounded
-      (`4 * face_count + 16`, measured — worst case 9/3 flips across a
-      spread of random test configurations, well under the ~72 bound for
-      those sizes) rather than looping to convergence unbounded, matching
-      Phase 5's `correctly_rounded_divide` discipline. A candidate flip
+      (`4 * face_count + 16`, well under the ~72 bound for the sizes
+      tested at the time — since superseded, see the sanity-benchmark
+      entry below, which found and fixed a real bug this measurement's
+      small (~8 point) grids never exercised) rather than looping to
+      convergence unbounded, matching Phase 5's `correctly_rounded_divide`
+      discipline. A candidate flip
       edge is defensively excluded if it's already a realized constraint
       from an earlier constraint in the same call (belt-and-suspenders:
       the upfront pairwise non-crossing validation should already make
@@ -190,6 +192,20 @@
       `Triangulation2::validate_topology()`'s Euler-characteristic check
       assumes full convex-hull coverage — false for a non-convex
       polygon's output — see `docs/degeneracy-policy.md`.
+- [x] Small-scale sanity benchmarks (`benches/sanity.rs`, fixed seed,
+      n=100/300/1000, `cargo bench --bench sanity`): triangle counts and
+      topology validity for `delaunay2`/`constrained_delaunay2`/
+      `triangulate_polygon`, generous (not competitive) time ceilings —
+      no performance optimization done, per the user's explicit scope.
+      Found and fixed a real bug along the way:
+      `insert_constraint_edge`'s original rescan-and-pick-first crossing-
+      edge selection could oscillate in a 2-cycle instead of converging,
+      on an ordinary (non-degenerate) long constraint in a 300-point
+      random cloud — every existing unit test used inputs too small to
+      exercise it. Fixed with a persistent FIFO queue (the actual
+      standard Sloan-style algorithm, which the code's own prior doc
+      comment had mistakenly described itself as already being). See
+      `tests/regression/cdt.rs` and `tasks/lessons.md`.
 
 ## Known gaps, not yet closed (see docs/compatibility.md)
 

@@ -228,3 +228,54 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   says to measure, not assert — and even once measured favorably, a
   defensive check's *reachability* (test-only vs. shipped-to-downstream)
   needs the same scrutiny as the check itself.
+- Real bug, found not by the unit test suite but by the Phase 6D sanity
+  benchmark's larger inputs: Phase 6C's `insert_constraint_edge`
+  described itself as "the standard Sloan-style algorithm, simplified —
+  rescan every iteration and flip whichever crossing edge is currently
+  flippable, instead of maintaining a persistent queue." That framing was
+  wrong in a way 14 passing unit tests (all on ≤8-point grids or short
+  constraints) never caught: it isn't a slower version of the same
+  algorithm, it's a *different, non-terminating* one. Always picking
+  "whichever flippable edge sorts first this scan" can settle into a
+  2-cycle — flip edge A, its replacement is still crossing and still
+  sorts first next scan, flip it back, repeat — with the crossing-edge
+  count never shrinking, confirmed by instrumenting the loop and watching
+  `crossing.len()` and each candidate's flippability oscillate between
+  exactly two states for ~2300 iterations before hitting the flip bound.
+  A single, otherwise-unremarkable long constraint in a 300-point random
+  cloud (`benches/sanity.rs`) reproduced it on the first try; no
+  degenerate collinearity involved. Fixed by implementing the actual
+  standard algorithm: a persistent FIFO queue of crossing edges, popped
+  one at a time, flipped if convex (requeuing the fresh diagonal only if
+  it's still crossing) or pushed to the back to retry if not yet convex —
+  relying on the fact that a flip changes the *existence* of exactly the
+  popped edge and its replacement, so no other edge's crossing status can
+  change and the queue never needs a full rescan. See
+  `tests/regression/cdt.rs` and `src/triangulation/cdt.rs`'s
+  `insert_constraint_edge` doc comment. Lesson: a doc comment that
+  describes an implementation as "the standard algorithm, just simplified
+  for efficiency" is itself a claim that needs checking against the
+  actual algorithm's termination argument, not just against small-input
+  test results — and a bounded-loop safety net (the flip-count bound)
+  caught the *symptom* (returned a typed error instead of hanging or
+  corrupting state) but not the *root cause*, which only a benchmark
+  exercising realistically-sized, non-adversarial input surfaced.
+- Second bug in the same rewrite, caught by advisor review rather than
+  execution: the queue-based fix above changed the queue-empty exit to
+  "return `Ok(())`" without re-checking that the constraint edge actually
+  exists. For a constraint whose segment passes exactly through a third
+  input vertex, edges incident to that vertex classify as
+  `EndpointTouch`/`CollinearTouch` (never `Proper`) and so never enter
+  the crossing queue at all — meaning the queue can drain to empty while
+  the constraint itself was never realized, silently returning success
+  with the edge missing from `constrained_edges`. A `ConstraintInsertionFailed`
+  test for exactly this input (three collinear points, constraint
+  spanning the outer two) passed on the first write — not because the
+  bug wasn't real, but because the fix's own doc comment already
+  described the intended check and the code happened to have it by the
+  time the test ran. Reverted the one-line check and re-ran the same
+  test to confirm it actually fails without the fix (`Ok(...)` with
+  `constrained_edges: {}`) before trusting the green result. Lesson:
+  a passing regression test for a rewrite's edge case is only evidence
+  if you've watched it fail against the pre-fix code — otherwise it may
+  be validating that the fix exists, not that it was necessary.
