@@ -1,5 +1,7 @@
 # Kika
 
+**English** | [日本語](README_ja.md) | [简体中文](README_zh.md)
+
 **Kika — Robust Computational Geometry for Rust.** A pure-Rust,
 memory-safe alternative to [CGAL](https://www.cgal.org/) for developers who
 want robust geometric predicates without CMake, Boost, or a hard GMP/MPFR
