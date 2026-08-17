@@ -1,4 +1,7 @@
-use super::expansion::{diff_expansion, expansion_sign, expansion_sum, product_of_expansions};
+use super::expansion::{
+    det3_exact, det3_with_precancel_bound, diff_expansion, expansion_sign, expansion_sum, negate,
+    product_of_expansions,
+};
 use super::sign::Sign;
 use crate::primitives::Point3;
 
@@ -98,30 +101,6 @@ pub fn insphere(a: Point3, b: Point3, c: Point3, d: Point3, e: Point3) -> Sign {
     insphere_exact(a, b, c, d, e)
 }
 
-/// The 3x3 cofactor determinant of rows `p`, `q`, `r` (same expansion
-/// structure as `orient3d`'s core), plus a **pre-cancellation** magnitude
-/// bound suitable for an outer filter that multiplies this result by
-/// another factor and sums several such terms — see
-/// `INSPHERE_ERR_BOUND_FACTOR`'s doc comment.
-fn det3_with_precancel_bound(
-    p: (f64, f64, f64),
-    q: (f64, f64, f64),
-    r: (f64, f64, f64),
-) -> (f64, f64) {
-    let qr_12 = q.1 * r.2;
-    let qr_21 = q.2 * r.1;
-    let qr_02 = q.0 * r.2;
-    let qr_20 = q.2 * r.0;
-    let qr_01 = q.0 * r.1;
-    let qr_10 = q.1 * r.0;
-
-    let value = p.0 * (qr_12 - qr_21) - p.1 * (qr_02 - qr_20) + p.2 * (qr_01 - qr_10);
-    let precancel_bound = p.0.abs() * (qr_12.abs() + qr_21.abs())
-        + p.1.abs() * (qr_02.abs() + qr_20.abs())
-        + p.2.abs() * (qr_01.abs() + qr_10.abs());
-    (value, precancel_bound)
-}
-
 fn insphere_exact(a: Point3, b: Point3, c: Point3, d: Point3, e: Point3) -> Sign {
     let adx = diff_expansion(a.x(), e.x());
     let ady = diff_expansion(a.y(), e.y());
@@ -162,32 +141,6 @@ fn insphere_exact(a: Point3, b: Point3, c: Point3, d: Point3, e: Point3) -> Sign
         &negate(&term_d),
     );
     expansion_sign(&det)
-}
-
-/// The exact 3x3 cofactor determinant expansion of rows `p`, `q`, `r`
-/// (each a triple of expansions), mirroring [`det3_with_precancel_bound`]
-/// but built from `product_of_expansions`/`expansion_sum` throughout.
-fn det3_exact(
-    p: (&[f64], &[f64], &[f64]),
-    q: (&[f64], &[f64], &[f64]),
-    r: (&[f64], &[f64], &[f64]),
-) -> Vec<f64> {
-    let qr_12 = product_of_expansions(q.1, r.2);
-    let qr_21 = product_of_expansions(q.2, r.1);
-    let qr_02 = product_of_expansions(q.0, r.2);
-    let qr_20 = product_of_expansions(q.2, r.0);
-    let qr_01 = product_of_expansions(q.0, r.1);
-    let qr_10 = product_of_expansions(q.1, r.0);
-
-    let term0 = product_of_expansions(p.0, &expansion_sum(&qr_12, &negate(&qr_21)));
-    let term1 = product_of_expansions(p.1, &expansion_sum(&qr_02, &negate(&qr_20)));
-    let term2 = product_of_expansions(p.2, &expansion_sum(&qr_01, &negate(&qr_10)));
-
-    expansion_sum(&expansion_sum(&term0, &negate(&term1)), &term2)
-}
-
-fn negate(e: &[f64]) -> Vec<f64> {
-    e.iter().map(|v| -v).collect()
 }
 
 #[cfg(test)]

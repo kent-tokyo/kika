@@ -180,6 +180,67 @@ pub(crate) fn expansion_sign(e: &[f64]) -> Sign {
     Sign::Zero
 }
 
+/// The expansion with every component's sign flipped — `-e`.
+pub(crate) fn negate(e: &[f64]) -> Vec<f64> {
+    e.iter().map(|v| -v).collect()
+}
+
+/// The 3x3 cofactor determinant of rows `p`, `q`, `r`
+/// (`det[p; q; r]` expanded along row `p`), plus a **pre-cancellation**
+/// magnitude bound suitable for an outer filter that multiplies this
+/// result by another factor and sums several such terms — see
+/// `orient3d`/`incircle`/`insphere`'s own `*_ERR_BOUND_FACTOR` doc
+/// comments and `docs/numerical-model.md` "Known limitation (fixed):
+/// filter bound must use pre-cancellation magnitudes" for why the
+/// pre-cancellation (not post-cancellation) magnitude is the only sound
+/// bound for a nested cofactor computation. Shared by all three
+/// predicates: `orient3d`'s determinant (rows are raw coordinate diffs),
+/// `incircle`'s (a 2D paraboloid lift — the third "row" is a squared-distance
+/// term), and `insphere`'s four cofactors (a 3D paraboloid lift) are all
+/// exactly this same 3x3 structure, just with different inputs for `p`,
+/// `q`, `r`.
+pub(crate) fn det3_with_precancel_bound(
+    p: (f64, f64, f64),
+    q: (f64, f64, f64),
+    r: (f64, f64, f64),
+) -> (f64, f64) {
+    let qr_12 = q.1 * r.2;
+    let qr_21 = q.2 * r.1;
+    let qr_02 = q.0 * r.2;
+    let qr_20 = q.2 * r.0;
+    let qr_01 = q.0 * r.1;
+    let qr_10 = q.1 * r.0;
+
+    let value = p.0 * (qr_12 - qr_21) - p.1 * (qr_02 - qr_20) + p.2 * (qr_01 - qr_10);
+    let precancel_bound = p.0.abs() * (qr_12.abs() + qr_21.abs())
+        + p.1.abs() * (qr_02.abs() + qr_20.abs())
+        + p.2.abs() * (qr_01.abs() + qr_10.abs());
+    (value, precancel_bound)
+}
+
+/// The exact 3x3 cofactor determinant expansion of rows `p`, `q`, `r`
+/// (each a triple of expansions), mirroring [`det3_with_precancel_bound`]
+/// but built from [`product_of_expansions`]/[`expansion_sum`] throughout
+/// — see that function's doc comment for which predicates share this.
+pub(crate) fn det3_exact(
+    p: (&[f64], &[f64], &[f64]),
+    q: (&[f64], &[f64], &[f64]),
+    r: (&[f64], &[f64], &[f64]),
+) -> Vec<f64> {
+    let qr_12 = product_of_expansions(q.1, r.2);
+    let qr_21 = product_of_expansions(q.2, r.1);
+    let qr_02 = product_of_expansions(q.0, r.2);
+    let qr_20 = product_of_expansions(q.2, r.0);
+    let qr_01 = product_of_expansions(q.0, r.1);
+    let qr_10 = product_of_expansions(q.1, r.0);
+
+    let term0 = product_of_expansions(p.0, &expansion_sum(&qr_12, &negate(&qr_21)));
+    let term1 = product_of_expansions(p.1, &expansion_sum(&qr_02, &negate(&qr_20)));
+    let term2 = product_of_expansions(p.2, &expansion_sum(&qr_01, &negate(&qr_10)));
+
+    expansion_sum(&expansion_sum(&term0, &negate(&term1)), &term2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

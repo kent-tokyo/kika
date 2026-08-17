@@ -1,4 +1,4 @@
-use super::expansion::{diff_expansion, expansion_sign, expansion_sum, product_of_expansions};
+use super::expansion::{det3_exact, det3_with_precancel_bound, diff_expansion, expansion_sign};
 use super::sign::Sign;
 use crate::primitives::Point3;
 
@@ -62,22 +62,9 @@ pub fn orient3d(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
     let cdy = c.y() - d.y();
     let cdz = c.z() - d.z();
 
-    let bdy_cdz = bdy * cdz;
-    let bdz_cdy = bdz * cdy;
-    let bdx_cdz = bdx * cdz;
-    let bdz_cdx = bdz * cdx;
-    let bdx_cdy = bdx * cdy;
-    let bdy_cdx = bdy * cdx;
-
-    let term_a = adx * (bdy_cdz - bdz_cdy);
-    let term_b = ady * (bdx_cdz - bdz_cdx);
-    let term_c = adz * (bdx_cdy - bdy_cdx);
-    let det = term_a - term_b + term_c;
-
-    let bound = ORIENT3D_ERR_BOUND_FACTOR
-        * (adx.abs() * (bdy_cdz.abs() + bdz_cdy.abs())
-            + ady.abs() * (bdx_cdz.abs() + bdz_cdx.abs())
-            + adz.abs() * (bdx_cdy.abs() + bdy_cdx.abs()));
+    let (det, precancel_bound) =
+        det3_with_precancel_bound((adx, ady, adz), (bdx, bdy, bdz), (cdx, cdy, cdz));
+    let bound = ORIENT3D_ERR_BOUND_FACTOR * precancel_bound;
 
     if bound > 0.0 && det.abs() > bound {
         return Sign::of(det);
@@ -103,29 +90,8 @@ fn orient3d_exact(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
     let cdy = diff_expansion(c.y(), d.y());
     let cdz = diff_expansion(c.z(), d.z());
 
-    let bc_yz = expansion_sum(
-        &product_of_expansions(&bdy, &cdz),
-        &negate(&product_of_expansions(&bdz, &cdy)),
-    );
-    let bc_xz = expansion_sum(
-        &product_of_expansions(&bdx, &cdz),
-        &negate(&product_of_expansions(&bdz, &cdx)),
-    );
-    let bc_xy = expansion_sum(
-        &product_of_expansions(&bdx, &cdy),
-        &negate(&product_of_expansions(&bdy, &cdx)),
-    );
-
-    let term_a = product_of_expansions(&adx, &bc_yz);
-    let term_b = product_of_expansions(&ady, &bc_xz);
-    let term_c = product_of_expansions(&adz, &bc_xy);
-
-    let det = expansion_sum(&expansion_sum(&term_a, &negate(&term_b)), &term_c);
+    let det = det3_exact((&adx, &ady, &adz), (&bdx, &bdy, &bdz), (&cdx, &cdy, &cdz));
     expansion_sign(&det)
-}
-
-fn negate(e: &[f64]) -> Vec<f64> {
-    e.iter().map(|v| -v).collect()
 }
 
 #[cfg(test)]
