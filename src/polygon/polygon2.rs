@@ -1,6 +1,6 @@
 use crate::intersections::{SegmentIntersectionKind, segment_intersection_kind};
-use crate::predicates::{Orientation, polygon_orientation};
-use crate::primitives::{Point2, Segment2};
+use crate::predicates::{Orientation, orient2d, polygon_orientation};
+use crate::primitives::{Point2, PointSegmentRelation, Segment2};
 
 /// A 2D polygon ring: `vertices[i]` to `vertices[(i+1) % n]`, including
 /// the wraparound edge back to `vertices[0]` — **implicitly** closed
@@ -166,6 +166,67 @@ impl Polygon2 {
         }
         None
     }
+
+    /// Classifies `p`'s position relative to this ring. Exact: a crossing-
+    /// number (ray-casting) test along `+x` from `p`, using `orient2d` to
+    /// decide whether an edge's crossing point lies to the right of `p`
+    /// instead of computing that crossing coordinate (which would be a new,
+    /// generally non-representable construction — see ADR-004). Works for
+    /// any simple polygon, convex or not, either winding — unlike
+    /// [`Triangle2::relation_to`](crate::Triangle2::relation_to)'s "same
+    /// side of every edge" test, which only works because a triangle is
+    /// always convex.
+    ///
+    /// Every edge is checked for exact membership first
+    /// ([`Segment2::relation_to`]), so an on-boundary `p` is never
+    /// misclassified by the crossing count. For a non-simple (self-
+    /// intersecting) or degenerate ring this still returns a well-defined
+    /// answer (never panics), matching this type's own "degenerate is
+    /// representable, not rejected" policy — but the *meaning* of "inside"
+    /// only corresponds to enclosed area for a simple ring; check
+    /// [`Polygon2::find_self_intersection`] first if that matters.
+    pub fn relation_to(&self, p: Point2) -> PointPolygonRelation {
+        let n = self.vertices.len();
+        let mut inside = false;
+        for i in 0..n {
+            let edge = self.edge(i);
+            if edge.relation_to(p) != PointSegmentRelation::NotOnSegment {
+                return PointPolygonRelation::OnBoundary;
+            }
+            let (a, b) = (edge.a(), edge.b());
+            let straddles = (a.y() > p.y()) != (b.y() > p.y());
+            if !straddles {
+                continue;
+            }
+            let upward = b.y() > a.y();
+            let side = orient2d(a, b, p);
+            let crosses_to_the_right = if upward {
+                side == Orientation::CounterClockwise
+            } else {
+                side == Orientation::Clockwise
+            };
+            if crosses_to_the_right {
+                inside = !inside;
+            }
+        }
+        if inside {
+            PointPolygonRelation::Inside
+        } else {
+            PointPolygonRelation::Outside
+        }
+    }
+}
+
+/// Where a point lies relative to a [`Polygon2`] ring, per
+/// [`Polygon2::relation_to`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointPolygonRelation {
+    /// Strictly inside the ring (odd crossing count).
+    Inside,
+    /// Exactly on one of the ring's edges (including at a vertex).
+    OnBoundary,
+    /// Not inside or on the boundary.
+    Outside,
 }
 
 #[cfg(test)]
@@ -274,5 +335,100 @@ mod tests {
         let v = p(3.0, 4.0);
         let poly = Polygon2::new(vec![v]);
         assert_eq!(poly.edge(0), Segment2::new(v, v));
+    }
+
+    #[test]
+    fn relation_to_convex_square() {
+        let poly = square_ccw();
+        assert_eq!(poly.relation_to(p(2.0, 2.0)), PointPolygonRelation::Inside);
+        assert_eq!(
+            poly.relation_to(p(0.0, 0.0)),
+            PointPolygonRelation::OnBoundary
+        );
+        assert_eq!(
+            poly.relation_to(p(2.0, 0.0)),
+            PointPolygonRelation::OnBoundary
+        );
+        assert_eq!(
+            poly.relation_to(p(4.0, 2.0)),
+            PointPolygonRelation::OnBoundary
+        );
+        assert_eq!(
+            poly.relation_to(p(-1.0, 2.0)),
+            PointPolygonRelation::Outside
+        );
+        assert_eq!(poly.relation_to(p(5.0, 5.0)), PointPolygonRelation::Outside);
+    }
+
+    #[test]
+    fn relation_to_does_not_care_about_winding() {
+        let ccw = square_ccw();
+        let cw = Polygon2::new(vec![p(0.0, 0.0), p(0.0, 4.0), p(4.0, 4.0), p(4.0, 0.0)]);
+        assert_eq!(ccw.relation_to(p(2.0, 2.0)), PointPolygonRelation::Inside);
+        assert_eq!(cw.relation_to(p(2.0, 2.0)), PointPolygonRelation::Inside);
+    }
+
+    /// The L-shape from `triangulate_polygon`'s own tests: a non-convex
+    /// ring where the "same side of every edge" trick (which only works
+    /// for a convex shape) would misclassify the missing 2x2 corner as
+    /// inside.
+    #[test]
+    fn relation_to_non_convex_l_shape() {
+        let poly = Polygon2::new(vec![
+            p(0.0, 0.0),
+            p(4.0, 0.0),
+            p(4.0, 2.0),
+            p(2.0, 2.0),
+            p(2.0, 4.0),
+            p(0.0, 4.0),
+        ]);
+        // Inside the L's own area.
+        assert_eq!(poly.relation_to(p(1.0, 1.0)), PointPolygonRelation::Inside);
+        // Inside the L's bounding box, but in the missing corner.
+        assert_eq!(poly.relation_to(p(3.0, 3.0)), PointPolygonRelation::Outside);
+        // On the reflex vertex itself.
+        assert_eq!(
+            poly.relation_to(p(2.0, 2.0)),
+            PointPolygonRelation::OnBoundary
+        );
+    }
+
+    #[test]
+    fn relation_to_point_exactly_on_a_horizontal_ray_through_a_vertex() {
+        // Regression-shaped case for the classic ray-casting double-count
+        // bug: a horizontal ray from `p` passing exactly through a shared
+        // vertex of two edges must not be counted twice (or zero times).
+        let poly = Polygon2::new(vec![
+            p(0.0, 0.0),
+            p(4.0, 2.0),
+            p(8.0, 0.0),
+            p(8.0, 4.0),
+            p(0.0, 4.0),
+        ]);
+        // Ray from (-1, 2) rightward passes exactly through the (4,2) apex.
+        assert_eq!(
+            poly.relation_to(p(-1.0, 2.0)),
+            PointPolygonRelation::Outside
+        );
+        assert_eq!(poly.relation_to(p(5.0, 3.0)), PointPolygonRelation::Inside);
+    }
+
+    #[test]
+    fn relation_to_degenerate_single_vertex_polygon() {
+        let v = p(3.0, 4.0);
+        let poly = Polygon2::new(vec![v]);
+        assert_eq!(poly.relation_to(v), PointPolygonRelation::OnBoundary);
+        assert_eq!(poly.relation_to(p(0.0, 0.0)), PointPolygonRelation::Outside);
+    }
+
+    #[test]
+    fn relation_to_degenerate_collinear_polygon_has_no_interior() {
+        let poly = Polygon2::new(vec![p(0.0, 0.0), p(2.0, 0.0), p(4.0, 0.0)]);
+        assert_eq!(poly.basic_validity(), PolygonBasicValidity::ZeroArea);
+        assert_eq!(
+            poly.relation_to(p(1.0, 0.0)),
+            PointPolygonRelation::OnBoundary
+        );
+        assert_eq!(poly.relation_to(p(1.0, 1.0)), PointPolygonRelation::Outside);
     }
 }

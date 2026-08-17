@@ -16,6 +16,8 @@ mod line_intersection;
 mod orient2d;
 #[path = "differential/orient3d.rs"]
 mod orient3d;
+#[path = "differential/point_in_polygon.rs"]
+mod point_in_polygon;
 #[path = "differential/point_in_triangle.rs"]
 mod point_in_triangle;
 #[path = "differential/point_on_segment.rs"]

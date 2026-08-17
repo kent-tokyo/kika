@@ -346,3 +346,27 @@ Notes on decisions that took real investigation, so they aren't re-litigated.
   classification" first — the answer settles `#[non_exhaustive]`
   immediately, no case-by-case guessing needed. See `CHANGELOG.md`'s
   0.3.0 entry.
+- Test-authoring trap, not a library bug, found writing `Polygon2::relation_to`'s
+  (0.4.0, point-in-polygon) differential oracle: the "sort random points
+  by angle around their plain-`f64` centroid" trick (borrowed from
+  `cdt.rs`'s multi-constraint flip-count test, which only ever used it at
+  one consistent magnitude scale) does **not** reliably produce a simple
+  polygon once points at wildly different magnitudes (~1e-31 alongside
+  ~1e29) are mixed in the same ring — the arithmetic-mean centroid gets
+  dragged off toward the huge-magnitude points, landing far outside the
+  hull the tiny points actually span, so angle-sorting around it silently
+  stops being star-shaped. First version of `mixed_intra_call_magnitude`
+  trusted the sort unconditionally and got a real, reproducible oracle
+  mismatch — confirmed via the crate's own `find_self_intersection` that
+  the generated "polygon" actually self-intersected (`Proper`, not a
+  near-miss). Not a `relation_to` bug: the oracle's even-odd/winding-number
+  equivalence only holds for a genuinely simple polygon in the first
+  place. Fixed by verifying `find_self_intersection().is_none()` on every
+  generated candidate and retrying (bounded) instead of assuming the
+  angle-sort always succeeds. Lesson: a geometric test-fixture generator's
+  own correctness precondition (here, "produces a simple polygon") needs
+  the same "verify, don't assume" treatment as the production code it's
+  testing — especially after copying a technique out of its original
+  context (moderate, single-scale magnitudes) into a new one (deliberate
+  extreme cross-scale mixing) that can break an assumption the original
+  context never stressed. See `tests/differential/point_in_polygon.rs`.
