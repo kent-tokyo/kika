@@ -152,14 +152,27 @@ in pure Rust, that's what Phase 1 of Kika is.
   Constraint recovery and Delaunay restoration are each bounded (never an
   unbounded loop); `CdtError` reports crossing/collinear constraints and
   algorithm exhaustion as typed errors, never a panic.
+* `triangulate_polygon` — simple-polygon triangulation (Phase 6D), built
+  on Phase 6C's CDT: constrain every polygon edge, then discard the
+  concave-pocket faces outside the polygon (for a non-convex input) via a
+  purely topological flood fill from one interior seed face — never a
+  constructed point such as a centroid. No holes, no Steiner points
+  (every output vertex is one of the polygon's own), self-intersecting
+  input rejected as a typed `PolygonTriangulationError`, both CCW and CW
+  input accepted, deterministic. See
+  [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md) for the full
+  scope table, including a caveat for checking the result with
+  `Triangulation2::validate_topology()` (its Euler-characteristic check
+  assumes full convex-hull coverage, which a non-convex polygon's
+  triangulation deliberately doesn't have).
 
 All four predicates complete v0.1's robust-predicate scope; the primitives,
 intersections, polygon, convex hull, and Delaunay triangulation above
 complete Phases 2 through 4. `segment_intersection`'s `Proper`-crossing
-point construction (below) completes Phase 5, and the adjacency structure
-plus constrained Delaunay triangulation above complete Phase 6A-6C.
-Everything past this point (simple-polygon triangulation, polygon Boolean)
-is Phase 6D and later — see [Roadmap](#roadmap).
+point construction (below) completes Phase 5, and the adjacency structure,
+constrained Delaunay triangulation, and simple-polygon triangulation above
+complete Phase 6A-6D. Everything past this point (polygon Boolean, exact
+Voronoi) is later — see [Roadmap](#roadmap).
 
 * `predicates::line_intersection` (used internally by
   `segment_intersection`'s `Proper` case) — the first exact/certified
@@ -249,7 +262,7 @@ being finalized yet — see ADR-004.
 | Delaunay triangulation | Implemented — fully exact, no synthetic coordinates |
 | Triangulation adjacency (vertex/edge/face queries) | Implemented — `VertexId`/`EdgeId`/`FaceId`, neighbor/boundary queries, internal topology validator (ADR-006) |
 | Constrained Delaunay | Implemented — narrow scope: non-crossing constraints between existing vertices only, no Steiner points (Phase 6C) |
-| Simple polygon triangulation | Planned — not implemented (Phase 6D) |
+| Simple polygon triangulation | Implemented — narrow scope: no holes, no Steiner points, self-intersecting input rejected (Phase 6D) |
 | Polygon Boolean | Not implemented — exactness model still open, see ADR-004 |
 | 3D mesh operations | Not implemented |
 

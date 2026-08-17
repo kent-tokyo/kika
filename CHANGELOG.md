@@ -7,6 +7,30 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- Simple polygon triangulation (Phase 6D): `triangulate_polygon`,
+  `PolygonTriangulationError`. Built on Phase 6C's CDT: constrain every
+  polygon edge, then discard the concave-pocket faces outside the polygon
+  (for non-convex input) via a purely topological flood fill from one
+  interior seed face — found via a single `orient2d` check against an
+  existing triangle vertex, never a constructed point such as a centroid.
+  No holes, no Steiner points (every output vertex is one of the
+  polygon's own); self-intersecting input (including a non-adjacent
+  repeated vertex) is a typed error, never a panic. Accepts both CCW and
+  CW input — the flood fill is orientation-agnostic; only the seed-face
+  selection branches on the polygon's own winding. Deterministic
+  regardless of which vertex the input starts at. Found via review: the
+  flood fill's seed-face selection needed to correctly disambiguate when
+  the seed edge has 2 incident faces (a chord of the full point set's
+  hull), not just the trivial 1-incident-face (hull edge) case — added a
+  dedicated test for that branch, plus one with 4 separate discarded
+  pockets (a plus/cross shape), after the initial test suite happened to
+  only exercise hull-edge seeds. Also found and documented a real
+  semantic gap: `Triangulation2::validate_topology()`'s Euler-formula
+  check assumes full convex-hull coverage, true for
+  `delaunay2`/`constrained_delaunay2` but generally false for a
+  non-convex polygon's triangulation (a proper subset of the hull) — see
+  `docs/degeneracy-policy.md`.
+
 - Constrained Delaunay triangulation (Phase 6C): `constrained_delaunay2`,
   `ConstrainedTriangulation2`, `CdtError`. Deliberately narrow scope: only
   non-crossing constraint edges between existing input vertices (crossing

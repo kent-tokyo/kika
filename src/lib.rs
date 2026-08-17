@@ -25,6 +25,6 @@ pub use primitives::{
     Triangle3, Vector2, Vector3,
 };
 pub use triangulation::{
-    CdtError, ConstrainedTriangulation2, EdgeId, FaceId, Triangulation2, VertexId,
-    constrained_delaunay2, delaunay2, validate_cdt_topology,
+    CdtError, ConstrainedTriangulation2, EdgeId, FaceId, PolygonTriangulationError, Triangulation2,
+    VertexId, constrained_delaunay2, delaunay2, triangulate_polygon, validate_cdt_topology,
 };

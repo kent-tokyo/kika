@@ -82,6 +82,23 @@ deviation from a plain PSLG-with-Steiner-points CDT is a typed
 | Multiple constraints in one call, each needing its own edge flips | Each constraint's flip search defensively excludes every already-realized constraint from earlier in the same call as a flip candidate — see `crossing_faces`' doc comment for why this should be geometrically unreachable given the upfront non-crossing validation, and why the exclusion exists anyway as defense in depth. See `multiple_constraints_each_needing_a_flip_all_survive`. |
 | Same point set and constraint set, different constraint insertion order | Same result — `constrained_delaunay2` builds from a canonically-sorted vertex order (inherited from `delaunay2`) and each constraint's flip search only depends on the current triangulation state, not accumulated insertion history. See `deterministic_regardless_of_constraint_order`. |
 
+## Simple polygon triangulation degeneracies (Phase 6D, implemented)
+
+`triangulate_polygon`'s scope is deliberately narrow (no holes, no Steiner
+points — see its doc comment and `src/triangulation/polygon.rs`'s module
+doc comment); every rejected input is a typed
+`PolygonTriangulationError`, never a panic.
+
+| Case | Behavior |
+|---|---|
+| Fewer than 3 vertices | `PolygonTriangulationError::TooFewVertices`, via `Polygon2::basic_validity`. |
+| Two consecutive vertices exactly equal (zero-length edge) | `PolygonTriangulationError::DegenerateEdge`, via `Polygon2::basic_validity`. |
+| Valid vertex count, no consecutive duplicates, but zero net signed area | `PolygonTriangulationError::ZeroArea`, via `Polygon2::basic_validity`. Note a symmetric self-crossing (bowtie) quadrilateral can *also* land here — its two lobes are congruent with opposite winding and cancel exactly — before self-intersection is even checked; this is still a correct rejection, just via a different variant than an asymmetric bowtie would hit. |
+| Self-intersecting boundary (including a non-adjacent repeated vertex, caught as an `EndpointTouch`) | `PolygonTriangulationError::SelfIntersecting`, via `Polygon2::find_self_intersection`. Automatic splitting into simple sub-polygons is out of scope. |
+| Clockwise input | Accepted — the interior/exterior flood fill (see below) is purely topological and orientation-agnostic; the one place winding matters (picking the correct starting face) explicitly branches on `Polygon2::orientation()`. See `clockwise_input_triangulates_the_same_region`. |
+| Non-convex (reflex-vertex) polygon | The underlying CDT triangulates the full point set's convex hull; faces in the concave "pockets" between the polygon boundary and that hull are discarded by a topological flood fill seeded from one interior face (found via a single `orient2d` check against an existing triangle vertex — never a constructed point such as a centroid, which would reopen ADR-004's construction-exactness questions for no reason) and walking through every non-boundary edge. A simple polygon's interior is always a single connected region, so this reaches every interior face and no exterior one, even when there are several separate pockets. See `l_shape_discards_the_concave_pocket`, `plus_shape_discards_all_four_separate_pockets`, and `seed_edge_with_two_incident_faces_still_finds_the_interior_side` (the seed edge is a chord with 2 incident faces, not a hull edge with 1 — the case where the disambiguation is actually load-bearing). |
+| Checking the result with `Triangulation2::validate_topology()` | Its Euler-characteristic check assumes the triangulation covers its own vertex set's full convex hull — true for `delaunay2`/`constrained_delaunay2`, generally **false** here for a non-convex polygon (the flood fill deliberately discards a proper subset of the hull). Expect `TopologyError::EulerFormulaViolated` on a non-convex result; every other check still holds. The applicable invariant instead: exactly `polygon.len() - 2` triangles, always, for any simple polygon triangulated with only its own vertices. |
+
 ## Algorithm-level tie-breaking (not yet applicable)
 
 Polygon Boolean (Phase 6) has cases with more than one topologically valid

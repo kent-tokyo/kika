@@ -1,6 +1,6 @@
 # Todo
 
-## Done (Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6A + Phase 6B + Phase 6C)
+## Done (Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6A + Phase 6B + Phase 6C + Phase 6D)
 
 - [x] Phase 0: name-collision check, ecosystem survey, ADR-001..005
 - [x] Expansion arithmetic core (`two_sum`, `split`, `two_product`,
@@ -170,6 +170,26 @@
       the fix. 15 unit tests, including the load-bearing
       `constrained_edge_survives_even_when_not_locally_delaunay`
       (proves the exclusion logic actually matters, not vacuously true).
+- [x] Phase 6D: simple-polygon triangulation via Phase 6C's CDT
+      (`triangulate_polygon`/`PolygonTriangulationError`). No holes, no
+      Steiner points, self-intersecting input rejected as a typed error
+      (via the same `Polygon2::basic_validity`/`find_self_intersection`
+      checks `Polygon2` already had). Constrain every polygon edge via
+      CDT, then discard the concave-pocket faces via a purely topological
+      flood fill from one interior seed face — identified by a single
+      `orient2d` check against an existing triangle vertex, never a
+      constructed point. Accepts both CCW and CW input; deterministic
+      regardless of starting vertex (verified by comparing the full
+      triangle set, not just total area). Advisor review flagged that the
+      initial test suite only ever exercised a seed edge with 1 incident
+      face (a hull edge, trivially unambiguous) — added
+      `seed_edge_with_two_incident_faces_still_finds_the_interior_side`
+      (seed edge is a chord, 2 incident faces, disambiguation actually
+      load-bearing) and `plus_shape_discards_all_four_separate_pockets`
+      (4 disconnected pockets, not just 1). Also found and documented:
+      `Triangulation2::validate_topology()`'s Euler-characteristic check
+      assumes full convex-hull coverage — false for a non-convex
+      polygon's output — see `docs/degeneracy-policy.md`.
 
 ## Known gaps, not yet closed (see docs/compatibility.md)
 
@@ -186,8 +206,6 @@
       derived on the floor side
 ## Backlog (later phases, not started)
 
-- [ ] Phase 6D: simple-polygon triangulation via Phase 6C's CDT (no holes
-      in the initial version). Not started.
 - [ ] Phase 6 (polygon Boolean, overlay): ADR-004's Phase 6 re-evaluation
       found Phase 6b/overlay needs a lazily-exact representation,
       expansion-backed homogeneous coordinates leading, rational-backed as
