@@ -1,5 +1,5 @@
 use super::super::expansion::{
-    expansion_sign, expansion_sum, product_of_expansions, scale_expansion,
+    expansion_sign, expansion_sum, negate, product_of_expansions, scale_expansion,
 };
 use super::super::sign::Sign;
 use crate::primitives::Point2;
@@ -145,10 +145,6 @@ fn orient2d_expansion(p: Point2, q: Point2, r: Point2) -> Vec<f64> {
     let left = product_of_expansions(&prx, &qry);
     let right = product_of_expansions(&pry, &qrx);
     expansion_sum(&left, &negate(&right))
-}
-
-fn negate(e: &[f64]) -> Vec<f64> {
-    e.iter().map(|v| -v).collect()
 }
 
 /// The next representable `f64` strictly greater than `x` (standard
