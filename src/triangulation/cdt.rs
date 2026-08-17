@@ -92,6 +92,48 @@ impl ConstrainedTriangulation2 {
     }
 }
 
+fn validate_constraints(points: &[Point2], constraints: &[(usize, usize)]) -> Result<(), CdtError> {
+    for &(a, b) in constraints {
+        if a >= points.len() || b >= points.len() {
+            return Err(CdtError::InvalidVertexIndex);
+        }
+        if a == b {
+            return Err(CdtError::ZeroLengthConstraint);
+        }
+    }
+    if dedup_sorted(points).len() != points.len() {
+        return Err(CdtError::InvalidVertexIndex);
+    }
+
+    let mut seen_pairs: HashSet<(usize, usize)> = HashSet::new();
+    for &(a, b) in constraints {
+        let key = if a <= b { (a, b) } else { (b, a) };
+        if !seen_pairs.insert(key) {
+            return Err(CdtError::DuplicateConstraint);
+        }
+    }
+
+    for i in 0..constraints.len() {
+        for j in (i + 1)..constraints.len() {
+            let (a, b) = constraints[i];
+            let (c, d) = constraints[j];
+            let s1 = Segment2::new(points[a], points[b]);
+            let s2 = Segment2::new(points[c], points[d]);
+            match segment_intersection_kind(s1, s2) {
+                SegmentIntersectionKind::Proper => {
+                    return Err(CdtError::ProperlyCrossingConstraints);
+                }
+                SegmentIntersectionKind::CollinearOverlap => {
+                    return Err(CdtError::CollinearOverlappingConstraints);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Builds the constrained Delaunay triangulation of `points` with the
 /// given `constraints` (pairs of indices into `points`), or a typed error
 /// explaining why it couldn't.
@@ -182,43 +224,7 @@ pub fn constrained_delaunay2(
     points: &[Point2],
     constraints: &[(usize, usize)],
 ) -> Result<ConstrainedTriangulation2, CdtError> {
-    for &(a, b) in constraints {
-        if a >= points.len() || b >= points.len() {
-            return Err(CdtError::InvalidVertexIndex);
-        }
-        if a == b {
-            return Err(CdtError::ZeroLengthConstraint);
-        }
-    }
-    if dedup_sorted(points).len() != points.len() {
-        return Err(CdtError::InvalidVertexIndex);
-    }
-
-    let mut seen_pairs: HashSet<(usize, usize)> = HashSet::new();
-    for &(a, b) in constraints {
-        let key = if a <= b { (a, b) } else { (b, a) };
-        if !seen_pairs.insert(key) {
-            return Err(CdtError::DuplicateConstraint);
-        }
-    }
-
-    for i in 0..constraints.len() {
-        for j in (i + 1)..constraints.len() {
-            let (a, b) = constraints[i];
-            let (c, d) = constraints[j];
-            let s1 = Segment2::new(points[a], points[b]);
-            let s2 = Segment2::new(points[c], points[d]);
-            match segment_intersection_kind(s1, s2) {
-                SegmentIntersectionKind::Proper => {
-                    return Err(CdtError::ProperlyCrossingConstraints);
-                }
-                SegmentIntersectionKind::CollinearOverlap => {
-                    return Err(CdtError::CollinearOverlappingConstraints);
-                }
-                _ => {}
-            }
-        }
-    }
+    validate_constraints(points, constraints)?;
 
     let triangulation = delaunay2(points);
 
