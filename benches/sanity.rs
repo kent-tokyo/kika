@@ -29,7 +29,7 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use kika::{Point2, Polygon2, constrained_delaunay2, delaunay2, triangulate_polygon};
+use kika::{Point2, Polygon2, constrained_delaunay2, delaunay2, triangulate_polygon, voronoi2};
 
 const TIME_CEILING: Duration = Duration::from_secs(5);
 const POLYGON_TIME_CEILING: Duration = Duration::from_secs(30);
@@ -114,6 +114,24 @@ fn check_constrained_delaunay(n: usize) {
     );
 }
 
+fn check_voronoi(n: usize) {
+    let pts = random_points(0xA5A5_1F2E_3C4D_5B6A ^ n as u64, n, 1000.0);
+    let start = Instant::now();
+    let voronoi = voronoi2(delaunay2(&pts));
+    let elapsed = start.elapsed();
+    let errors = voronoi.validate_voronoi_topology();
+    assert!(errors.is_empty(), "voronoi2 n={n}: {errors:?}");
+    assert!(
+        elapsed < TIME_CEILING,
+        "voronoi2 n={n} took {elapsed:?}, expected well under {TIME_CEILING:?}"
+    );
+    eprintln!(
+        "voronoi2                n={n:<5} {:>6} cells  {:>6} edges  {elapsed:?}",
+        voronoi.cells().count(),
+        voronoi.edges().count()
+    );
+}
+
 fn check_polygon_triangulation(n: usize) {
     let k = n / 2;
     let poly = star_polygon(k, 1000.0, 400.0);
@@ -143,6 +161,7 @@ fn main() {
     for &n in &[100, 300, 1000] {
         check_delaunay(n);
         check_constrained_delaunay(n);
+        check_voronoi(n);
         check_polygon_triangulation(n);
     }
     println!("\nAll sanity checks passed.");
