@@ -1,5 +1,34 @@
 # Todo
 
+## Done (ADR-007 Phase 7A: Voronoi topology construction, internal only)
+
+- [x] `src/triangulation/voronoi.rs` — `VoronoiCellId`/`VoronoiVertexId`/
+      `VoronoiEdgeId`, `VoronoiEdgeKind` (`#[non_exhaustive]`),
+      `VoronoiEdge`, owned `Voronoi2`, and the `voronoi2()` constructor:
+      union-find groups cocircular-adjacent Delaunay faces
+      (`incircle(...) == Sign::Zero`), same-group Delaunay edges are
+      excluded as spurious tie-break artifacts, and dense
+      `VoronoiVertexId`/`VoronoiEdgeId` are assigned by sorting on a
+      canonical site-identity key (not union-find root or scan order).
+      Two commits: `b9702c1` (data model + constructor + internal
+      `validate_voronoi_topology` validator + smoke tests),
+      `d161636` (canonical-topology normalization tests: a square's
+      both diagonals, and 5-/8-point exactly-cocircular integer-lattice
+      point sets under multiple fan triangulations built directly via
+      `assemble_triangulation`, since `delaunay2()` can never itself be
+      made to pick a different diagonal for a fixed point set).
+- [x] `#![allow(dead_code)]` at the module level, deliberately: nothing
+      outside this file's own tests calls into it yet — no query API,
+      no re-export from `triangulation::mod.rs`/`lib.rs`, no
+      circumcenter, no clipping. Full fmt/clippy (native +
+      `wasm32-unknown-unknown`, both `-D warnings`)/test suite pass at
+      each commit.
+- [x] **Not done, deliberately (Phase 7B/7C)**: public query API
+      (`cells()`/`cell_site()`/`edges()`/etc.), circumcenter, clipping,
+      nearest-neighbor, `cell_edges()`, performance work, new
+      dependencies, version bump, release. Not pushed to `origin/main`
+      — local commits only, per instruction.
+
 ## Done (ADR-007: Voronoi diagram topology design — design only, not implemented)
 
 - [x] `docs/adr/ADR-007-voronoi-diagram-topology.md` — full design for
