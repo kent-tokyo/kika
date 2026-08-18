@@ -1,8 +1,14 @@
 # ADR-007: Voronoi diagram topology API (0.5.0)
 
-Status: Proposed for 0.5.0 — design only, not yet implemented. No source
-code, version bump, dependency, or performance measurement has been done
-under this ADR. See "Explicitly out of scope for 0.5.0" below.
+Status: Decided and implemented, shipped in 0.5.0 (2026-08-19,
+`v0.5.0` tag at `ef5cdda`). `src/triangulation/voronoi.rs`:
+`Voronoi2`/`voronoi2` (cocircular-group union-find, canonical dense id
+assignment, internal validator) and the query API through the ordered
+`cell_edges()` boundary walk. No version bump, dependency, or
+performance measurement beyond what's noted as still deferred below
+(circumcenter coordinates, clipping, nearest-neighbor) was done under
+this ADR — that remains accurate as of shipping, not just at proposal
+time. See "Explicitly out of scope for 0.5.0" below.
 
 ## Context
 
