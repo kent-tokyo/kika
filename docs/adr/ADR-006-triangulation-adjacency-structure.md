@@ -11,6 +11,16 @@ neighbor-pointer fixup on `faces`/`face_neighbors`, plus
 without being flagged. Phase 6b's overlay structure (still open, see
 below) remains unimplemented.
 
+**Note (0.5.0):** the quad-edge rejection below (item 3) was reasoned
+from "no future Voronoi-diagram scope exists to revisit it against" —
+that premise became false once Voronoi topology shipped in 0.5.0.
+`docs/adr/ADR-007-voronoi-diagram-topology.md` re-examined this
+specifically (its own Context section) and found the conclusion still
+holds: a read-only Voronoi topology view is fully derivable from
+ordinary indexed-triangle adjacency (`face_vertices`/`neighboring_faces`),
+so quad-edge would have bought nothing here either. The premise was
+wrong in retrospect; the decision wasn't.
+
 ## Context
 
 `Triangulation2` (Phase 4) is deliberately a flat `Vec<Triangle2>` with no
