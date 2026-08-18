@@ -1,5 +1,21 @@
 # Todo
 
+## Done (post-0.5.0: voronoi_topology_validator fuzz target)
+
+- [x] `fuzz/fuzz_targets/voronoi_topology_validator.rs` — the same
+      small-integer-grid `common::points_from` fixture
+      `triangulation_topology_validator` uses (it produces cocircular
+      and collinear configurations often), calling
+      `Voronoi2::validate_voronoi_topology` on `voronoi2(delaunay2(...))`.
+      Not on any pre-existing required-target list (AGENTS.md §12's list
+      predates Voronoi entirely) — added because it directly matches
+      this crate's own established per-algorithm fuzz-target pattern for
+      newly-shipped topology-validating code, same shape as
+      `delaunay_insert`/`triangulation_topology_validator`/
+      `polygon_validity`. Ran clean: 143,971 executions / 60s, no
+      crashes. `cargo fmt`/`clippy` clean on the fuzz crate. Commit
+      `a0ca5fa`, local only.
+
 ## Done (0.5.0 release: published)
 
 - [x] Release preparation (5 commits, `7978207`..`ef5cdda`): version
