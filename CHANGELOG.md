@@ -5,6 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-19
+
 ### Added
 
 - `Voronoi2` / `voronoi2`: a topology-only Voronoi diagram, the dual of
@@ -28,6 +30,11 @@ follows [Keep a Changelog](https://keepachangelog.com/).
   entirely from `Triangulation2`'s existing face adjacency, no new data
   model. See `docs/adr/ADR-007-voronoi-diagram-topology.md` for the full
   design and correctness argument.
+
+  Degenerate input (fewer than 3 points, or all points exactly
+  collinear) matches `delaunay2`'s own policy: an empty `Voronoi2` (0
+  cells, 0 vertices, 0 edges), never a panic — see
+  `docs/degeneracy-policy.md`.
 
 ## [0.4.0] - 2026-08-18
 

@@ -122,6 +122,23 @@ covers only the hole-specific cases.
 | Any mix of CW/CCW winding, `outer` and each hole independently | Accepted — same orientation-agnostic flood fill as `triangulate_polygon`, generalized: a hole's boundary is just more constrained edges the fill stops at, exactly like `outer`'s own boundary or (for a non-convex `outer`) its concave-pocket edges. See `cw_outer_ccw_hole`/`ccw_outer_cw_hole`. |
 | Checking the result's triangle count | `n + 2h - 2` (total vertices across `outer` and every hole, `h` holes) — the hole-generalized form of `triangulate_polygon`'s `polygon.len() - 2`, reducing to it at `h = 0`. Checked defensively before returning `Ok`, same postcondition discipline as `triangulate_polygon`. |
 
+## Voronoi diagram topology degeneracies (0.5.0, implemented)
+
+`voronoi2`'s scope is deliberately topology-only: no coordinates
+(circumcenters), so there is no rounding/construction-exactness question
+to answer here at all — every case below is either "how many
+cells/vertices/edges exist and how do they connect", not "where".
+
+| Case | Behavior |
+|---|---|
+| Fewer than 3 distinct points, or all points collinear (`delaunay2`'s own degenerate-input case) | `voronoi2` returns a fully empty `Voronoi2` — 0 cells, 0 vertices, 0 edges, never a panic. Verified directly (not just derived from `delaunay2`'s own empty-`Triangulation2` policy): `cells()`/`vertices()`/`edges()` all yield 0 for 1 point, 2 points, and 3+ exactly collinear points. |
+| A collinear stretch on the convex hull (e.g. 3+ points on one straight hull edge, with other points making the overall set non-degenerate) | No special case needed or present — `delaunay2`'s own `HullBoundaryPoints::ExtremesOnly` seeding only affects which points bootstrap the initial hull fan, not which points end up as real triangulation vertices; every input point becomes a real Delaunay vertex (and so a real Voronoi cell) regardless. Verified directly: a 3-point collinear stretch plus one off-line point produces 4 cells, all correctly connected, `cell_edges()` well-defined for the "flat" middle point, `validate_voronoi_topology()` clean. |
+| 4 or more points exactly cocircular | The central case this module exists for (§"Cocircular tie-break normalization", ADR-007): merged into a single Voronoi vertex via union-find keyed on `incircle(...) == Sign::Zero`, regardless of which diagonal `delaunay2`'s own tie-break happened to choose — verified by feeding the *same* cocircular point set through multiple different hand-built triangulations (`assemble_triangulation`, since `delaunay2` itself can never be coaxed into picking a different diagonal for a fixed point set) and checking for identical, not merely isomorphic, canonical output. |
+| A cocircular cluster adjacent to a non-cocircular point | Partial exclusion, not all-or-nothing: only the interior Delaunay edge(s) *within* the cocircular cluster are excluded as spurious; an edge between a cluster face and an unrelated face survives as a genuine `Bounded` Voronoi edge. Verified with a fixture combining both in one triangulation (a cocircular square plus one far outlier). |
+| Near-cocircular but not exactly (e.g. one point nudged a small, exactly-representable distance off the true circle) | Not merged — `incircle`'s exact (expansion-arithmetic) evaluation is decisive, not a tolerance/epsilon comparison, so a close miss produces a genuine `Bounded` edge rather than being swept into the same group. |
+| `cell_edges()` on a cell with only 1 incident Delaunay face (e.g. any cell in a single-triangle triangulation) | Exactly 2 `Unbounded` edges (both of the site's hull-boundary edges), not 1 or 3 — the walk's entry and exit rays coincide with the same single face's two boundary edges. |
+| `cell_edges()`'s ordering under cocircular merging | Never splits into two disconnected runs of the same `VoronoiVertexId` — proven, not just tested: if two faces incident to one site land in the same cocircular group, every face between them in the local rotation must too (their shared vertex plus both circles' defining triples force one common circle, always caught by `voronoi2`'s exhaustive adjacent-pair testing, never just a spanning-structure subset of it). |
+
 ## Algorithm-level tie-breaking (not yet applicable)
 
 Polygon Boolean (Phase 6) has cases with more than one topologically valid

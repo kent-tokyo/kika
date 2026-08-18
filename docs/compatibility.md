@@ -1,13 +1,15 @@
 # Compatibility
 
-Status: Phase 1-5 complete; Phase 6A-6D complete. As of the 0.4.0
-candidate (0.2.0 and 0.3.0 already shipped; 0.4.0 adds polygon
-triangulation with holes — see `CHANGELOG.md`), Kika is a robust 2D
-kernel with exact predicates, 2D convex hull, Delaunay triangulation,
-constrained Delaunay triangulation (narrow scope), and simple-polygon
-triangulation with or without holes — see `README.md`'s Maturity table
-for exactly what each covers. Voronoi, polygon Boolean, and later
-roadmap work not started, deliberately deferred.
+Status: Phase 1-5 complete; Phase 6A-6D complete. As of the 0.5.0
+candidate (0.2.0, 0.3.0, and 0.4.0 already shipped; 0.5.0 adds
+topology-only Voronoi diagram support — see `CHANGELOG.md`), Kika is a
+robust 2D kernel with exact predicates, 2D convex hull, Delaunay
+triangulation, constrained Delaunay triangulation (narrow scope),
+simple-polygon triangulation with or without holes, and Voronoi diagram
+topology (no coordinates) — see `README.md`'s Maturity table for exactly
+what each covers. Voronoi vertex coordinates (circumcenters), clipping,
+polygon Boolean, and later roadmap work not started, deliberately
+deferred.
 
 ## Platforms
 
@@ -23,10 +25,13 @@ roadmap work not started, deliberately deferred.
   Phase 5's push, again after Phase 6A-6D + the CDT bug-fix commit landed
   (commit `d5e755a`, all 9 jobs green), again after the 0.3.0
   bug-check-and-refactoring commits landed (`bf936c8`..`59f92b3`, all 5
-  jobs green), and again after the 0.4.0 polygon-with-holes and wasm
+  jobs green), again after the 0.4.0 polygon-with-holes and wasm
   execution-testing commits landed (`4e54804`..`d6bf971`, all 10 jobs
-  green, including the new `wasm-test-node` job's first real CI run) —
-  CI-confirmed, not just locally verified.
+  green, including the new `wasm-test-node` job's first real CI run), and
+  again across the 3 pushes making up 0.5.0's Voronoi topology work
+  (Phase 7A `b9702c1`..`7050f9f`, Phase 7B `18c8d6e`..`92a4d4b`, Phase 7C
+  `45a91d1`..`159cf56`, all 10 jobs green on each push) — CI-confirmed,
+  not just locally verified.
 * `wasm32-unknown-unknown` — library **builds** successfully, verified
   both locally and in CI (`cargo build --target wasm32-unknown-unknown
   --lib`, the `wasm` job). As of this session, also **executed**, not
@@ -76,7 +81,7 @@ already hold in 0.2.0. Classification enums that are not `Result` errors
 `HullBoundaryPoints`) remain exhaustive; their variant sets are complete
 by construction.
 
-Public API surface as of Phase 6D:
+Public API surface as of 0.5.0:
 `Point2`, `Point3`, `Vector2`, `Vector3`, `Segment2`, `Triangle2`,
 `Triangle3`, `Aabb2`, `Aabb3`, `Sign`, `Orientation`, `KikaError`,
 `orient2d`, `orient3d`, `incircle`, `insphere`,
@@ -88,4 +93,6 @@ Public API surface as of Phase 6D:
 `ConstrainedTriangulation2`, `CdtError`, `constrained_delaunay2`,
 `validate_cdt_topology` (Phase 6C), `PolygonTriangulationError`,
 `triangulate_polygon` (Phase 6D), `PointPolygonRelation`,
-`triangulate_polygon_with_holes` (0.4.0).
+`triangulate_polygon_with_holes` (0.4.0), `Voronoi2`, `voronoi2`,
+`VoronoiCellId`, `VoronoiVertexId`, `VoronoiEdgeId`, `VoronoiEdgeKind`,
+`VoronoiEdge` (0.5.0, ADR-007) — topology only, no coordinate type added.
