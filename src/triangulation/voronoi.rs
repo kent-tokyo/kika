@@ -620,4 +620,67 @@ mod tests {
         assert_eq!(canonical_edges(&fan_0), canonical_edges(&fan_3));
         assert_eq!(canonical_edges(&fan_0), canonical_edges(&fan_6));
     }
+
+    #[test]
+    fn cocircular_cluster_plus_outlier_mixes_bounded_and_excluded_edges() {
+        // A cocircular square (p0,p1,p2,p3), split by diagonal p0-p2,
+        // plus a far-outside point p4 pulled in as an "ear" against edge
+        // p1-p2. Unlike every other test in this file, exclusion here is
+        // *partial*: p0-p2 (shared by the two square faces) is cocircular
+        // and excluded, but p1-p2 (shared by a square face and the ear)
+        // is not -- p4 is nowhere near the square's circumcircle -- so it
+        // must survive as a genuine Bounded edge. A construction that
+        // over-merges (e.g. unions any adjacent pair regardless of the
+        // incircle test) or under-excludes (keeps p0-p2) would pass every
+        // other test in this file but fail this one.
+        let p0 = pt(0.0, 0.0);
+        let p1 = pt(2.0, 0.0);
+        let p2 = pt(2.0, 2.0);
+        let p3 = pt(0.0, 2.0);
+        let p4 = pt(6.0, 1.0);
+        let pts = vec![p0, p1, p2, p3, p4];
+        let faces = vec![
+            [VertexId(1), VertexId(4), VertexId(2)], // ear: (p1, p4, p2)
+            [VertexId(0), VertexId(1), VertexId(2)], // square half sharing p1-p2 and p0-p2
+            [VertexId(0), VertexId(2), VertexId(3)], // square half sharing p0-p2
+        ];
+        let v = voronoi2(assemble_triangulation(pts, faces));
+
+        assert_eq!(
+            v.group_faces.len(),
+            2,
+            "the square's 2 faces merge (cocircular); the ear stays its own group"
+        );
+        assert_eq!(
+            v.edges.len(),
+            6,
+            "7 Delaunay edges (5 hull + 2 interior) minus 1 excluded same-group diagonal"
+        );
+
+        let bounded: Vec<_> = v
+            .edges
+            .iter()
+            .filter(|e| matches!(e.kind, VoronoiEdgeKind::Bounded { .. }))
+            .collect();
+        assert_eq!(
+            bounded.len(),
+            1,
+            "only p1-p2 (square face vs. ear) is a genuine, non-cocircular interior edge"
+        );
+        match bounded[0].kind {
+            VoronoiEdgeKind::Bounded { vertices } => {
+                assert_ne!(
+                    vertices[0], vertices[1],
+                    "a Bounded edge must separate 2 distinct groups"
+                );
+            }
+            VoronoiEdgeKind::Unbounded { .. } => unreachable!(),
+        }
+        assert_eq!(
+            v.edges.len() - bounded.len(),
+            5,
+            "the remaining 5 edges are the pentagon's hull, all Unbounded"
+        );
+        assert!(v.validate_voronoi_topology().is_empty());
+    }
 }
