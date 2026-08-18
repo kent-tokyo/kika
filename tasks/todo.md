@@ -1,5 +1,44 @@
 # Todo
 
+## Done (ADR-007 Phase 7B: Voronoi public query API)
+
+- [x] `Voronoi2`/`voronoi2()`/`VoronoiCellId`/`VoronoiVertexId`/
+      `VoronoiEdgeId`/`VoronoiEdgeKind`/`VoronoiEdge` re-exported at
+      `triangulation::mod.rs` and the crate root. Query API:
+      `cells()`/`vertices()`/`edges()`, `cell_site()`, `edge_cells()`,
+      `edge_kind()`, `dual_delaunay_edge()`, `vertex_delaunay_faces()`
+      (direct accessors), `neighboring_cells()`/`cell_is_unbounded()`
+      (derived from `edges` each call). Out-of-range/cross-instance id
+      handling mirrors `VertexId`/`EdgeId`/`FaceId`'s existing
+      unchecked-indexing convention. Commit `18c8d6e`.
+- [x] `cell_edges()` (ordered cyclic cell-boundary walk) deliberately
+      **not** implemented: unbounded cells have no closed ring to walk,
+      and the crate has no existing "faces around a vertex" primitive to
+      build it from — a real design task, deferred to Phase 7C rather
+      than rushed in under this phase's scope.
+- [x] Validator extended (`a994384`) with 4 new checks: distinct edge
+      cells, distinct `Bounded` vertices, `Unbounded` edges dual to an
+      actual hull edge, no duplicate face within one vertex's group. Of
+      ADR-007's requested invariant list, "same-component edges never
+      exposed" was already covered by Phase 7A's checks, and "one cell
+      per site"/"neighboring is symmetric" were skipped as structurally
+      guaranteed by this module's data shape (no separate cell table;
+      `neighboring_cells` reads `edges`' unordered pairs symmetrically by
+      construction) — not something a runtime check could meaningfully
+      fail to catch. A negative test deliberately corrupts a valid
+      `Voronoi2`'s private fields to confirm each of the 4 new checks
+      actually fires, not just that valid input passes.
+- [x] rustdoc examples on `voronoi2()` and `neighboring_cells()`; query
+      API round-trip test against internal struct data; symmetry test on
+      the mixed cocircular-cluster-plus-outlier fixture. Verified at
+      every commit: fmt, clippy (native + `wasm32-unknown-unknown`, both
+      `-D warnings`), full test suite incl. doctests, MSRV (1.85),
+      `cargo doc` (`-D warnings`), `wasm-pack test --node --release`.
+- [x] **Not done, deliberately (Phase 7C)**: `cell_edges()`, circumcenter
+      coordinates, clipping, nearest-neighbor, performance work, new
+      dependencies, version bump, release. Not pushed — local commits
+      only, per instruction.
+
 ## Done (ADR-007 Phase 7A: Voronoi topology construction, internal only)
 
 - [x] `src/triangulation/voronoi.rs` — `VoronoiCellId`/`VoronoiVertexId`/
