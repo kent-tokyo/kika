@@ -54,3 +54,10 @@ path = "fuzz_targets/predicate_input_bytes.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "voronoi_topology_validator"
+path = "fuzz_targets/voronoi_topology_validator.rs"
+test = false
+doc = false
+bench = false
