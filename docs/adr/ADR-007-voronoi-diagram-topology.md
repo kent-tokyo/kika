@@ -126,21 +126,43 @@ Bowyer-Watson construction detail stripped before `Triangulation2` is ever
 public, not something a Voronoi edge should reinvent or rely on).
 
 ```rust
-pub enum VoronoiEdgeEndpoints {
+/// #[non_exhaustive]: 0.5.0 only ever produces `Bounded`/`Unbounded` (its
+/// scope is ≥3 non-collinear sites, where every Voronoi edge is either a
+/// finite segment or a single-direction ray). A future release supporting
+/// 1-2 site input (see "Revisit when") would need a `Line` variant — both
+/// directions infinite, no finite endpoint at all — which doesn't fit
+/// either existing variant. Marking this non_exhaustive now means that
+/// addition is non-breaking later, the same lesson 0.2.0's `CdtError`
+/// already taught this crate the hard way (see `CHANGELOG.md`'s 0.3.0
+/// entry) — except applied here to a *classification* enum, not a
+/// `Result` error type. This sharpens the criterion
+/// `tasks/lessons.md` recorded for that case (`Result`-error vs. closed
+/// classification): the real question is whether the variant set is
+/// complete by mathematical necessity forever (`Sign`, `Orientation` —
+/// a real number's sign has exactly 3 possibilities, full stop) or only
+/// complete under the *current* problem scope (`VoronoiEdgeKind` — closed
+/// for "≥3 non-collinear sites" but not closed in general). The latter
+/// gets `#[non_exhaustive]` too, regardless of whether it's an error type.
+#[non_exhaustive]
+pub enum VoronoiEdgeKind {
     /// Both sides finite — a genuine segment between two Voronoi vertices.
-    Bounded(VoronoiVertexId, VoronoiVertexId),
+    Bounded { vertices: [VoronoiVertexId; 2] },
     /// One finite side; the other extends to infinity. The direction/ray
     /// itself is not represented (topology-only, no coordinates) — only
     /// which finite vertex it leaves from.
-    Unbounded(VoronoiVertexId),
+    Unbounded { finite_vertex: VoronoiVertexId },
 }
 ```
 
-The "which hull edge does this unbounded edge come from" requirement is
-already covered without a separate field: `dual_delaunay_edge(edge)`
-(below) returns the same Delaunay `EdgeId` regardless of `Bounded`/
-`Unbounded` — for an `Unbounded` Voronoi edge, that dual **is** the hull
-edge it corresponds to. No extra "origin" bookkeeping needed.
+The "which hull edge does this unbounded edge come from" requirement does
+**not** need a separate field on `VoronoiEdgeKind` itself — see "Internal
+data structures" below: `VoronoiEdge.source_edge` (provenance) and
+`VoronoiEdge.cells` (the two sites, always present regardless of
+`Bounded`/`Unbounded`) together already cover it, and `cells` also serves
+"the owned-type self-sufficiency" requirement from review (below) — an
+`Unbounded` edge's `cells` pair already names both sites of its
+originating hull edge directly, no dereference through `source_edge`
+required.
 
 ## ID design
 
@@ -154,12 +176,16 @@ edge it corresponds to. No extra "origin" bookkeeping needed.
 pub struct VoronoiCellId(pub(super) VertexId);
 
 /// A genuinely new dense id -- Voronoi vertices are a many-to-one merge
-/// of Delaunay faces, not a bijection with any existing id type.
+/// of Delaunay faces, not a bijection with any existing id type. Dense
+/// index assigned by canonical key, not by union-find root or face-scan
+/// order -- see "Construction algorithm".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VoronoiVertexId(pub(super) u32);
 
 /// A genuinely new dense id -- see "Rejected alternatives" for why this
-/// isn't just a filtered reuse of EdgeId.
+/// isn't just a filtered reuse of EdgeId. Dense index assigned by
+/// canonical key, same discipline as VoronoiVertexId -- see
+/// "Construction algorithm".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VoronoiEdgeId(pub(super) u32);
 ```
@@ -168,6 +194,23 @@ Same privacy convention as `VertexId`/`EdgeId`/`FaceId`: `pub(super)` inner
 field (opaque outside the crate, constructible only from within
 `triangulation::*`), same derive list (`Debug, Clone, Copy, PartialEq, Eq,
 Hash`).
+
+**Canonical, not incidental, numbering.** `VoronoiVertexId`/`VoronoiEdgeId`
+being *dense* only says their values are `0..count` with no gaps — it says
+nothing about *which* group gets `0` vs. `1`. Left to union-find's own
+root selection or face-scan order, two differently-triangulated (but
+topologically identical) `Triangulation2`s of the same point set could
+produce the same `Voronoi2` *shape* with different `VoronoiVertexId`/
+`VoronoiEdgeId` *numbers* — a real gap for something claiming to be
+"the Delaunay tie-break's canonical, independent dual." Closed by
+assigning dense ids from a canonical sort key derived from site identity
+(`VertexId`), not from internal Delaunay bookkeeping — see "Construction
+algorithm" for the exact keys. **Compatibility note**: this guarantees
+*same input, same Kika version → same numbering*, not persistent
+cross-version id stability as part of the public contract — the same
+scope limitation this crate's other opaque ids already carry implicitly,
+made explicit here since canonical-by-construction numbering could
+otherwise read as a stronger promise than intended.
 
 ## Public API (pseudo-Rust — illustrative, not implementation)
 
@@ -184,10 +227,12 @@ impl Voronoi2 {
     // -- edges --
     pub fn edges(&self) -> impl Iterator<Item = VoronoiEdgeId> + '_;
     pub fn dual_delaunay_edge(&self, edge: VoronoiEdgeId) -> EdgeId;
-    pub fn edge_endpoints(&self, edge: VoronoiEdgeId) -> VoronoiEdgeEndpoints;
-    /// The two cells this edge separates -- derived from the dual Delaunay
-    /// edge's own two endpoint vertices, not separately stored.
-    pub fn edge_cells(&self, edge: VoronoiEdgeId) -> (VoronoiCellId, VoronoiCellId);
+    pub fn edge_kind(&self, edge: VoronoiEdgeId) -> VoronoiEdgeKind;
+    /// The two cells this edge separates. Stored directly on the owned
+    /// `VoronoiEdge` record (see "Internal data structures") rather than
+    /// re-derived through `dual_delaunay_edge` each call -- see "Owned
+    /// self-sufficiency" below for why.
+    pub fn edge_cells(&self, edge: VoronoiEdgeId) -> [VoronoiCellId; 2];
 
     // -- vertices --
     pub fn vertices(&self) -> impl Iterator<Item = VoronoiVertexId> + '_;
@@ -222,44 +267,87 @@ pub struct Voronoi2 {
     group_faces: Vec<Vec<FaceId>>,
     /// Dense, indexed by VoronoiEdgeId.0 as usize -- every surviving
     /// (non-spurious) Voronoi edge.
-    edges: Vec<VoronoiEdgeRecord>,
+    edges: Vec<VoronoiEdge>,
 }
 
-struct VoronoiEdgeRecord {
-    dual: EdgeId,
-    endpoints: VoronoiEdgeEndpoints,
+pub struct VoronoiEdge {
+    /// The two cells this edge separates. Present and meaningful for
+    /// *both* Bounded and Unbounded edges alike (an edge's two cells and
+    /// its own finite/infinite endpoint topology are orthogonal
+    /// questions) -- the canonical semantic content of "which sites does
+    /// this edge separate," stored directly rather than only reachable
+    /// by dereferencing `source_edge` through a live `Triangulation2`.
+    pub cells: [VoronoiCellId; 2],
+    /// Provenance only: which Delaunay edge this is dual to. Useful for
+    /// cross-referencing back into `Triangulation2` (e.g. `triangulation()`)
+    /// when it's available, but `cells`/`kind` are already the complete,
+    /// self-contained semantic fact -- nothing about interpreting this
+    /// edge *requires* re-resolving `source_edge`.
+    pub source_edge: EdgeId,
+    pub kind: VoronoiEdgeKind,
 }
 ```
 
-`edge_cells` is *not* separately stored: given `dual = dual_delaunay_edge(edge)`,
-`delaunay.edge_vertices(dual)` already gives the two `VertexId`s to wrap as
-`VoronoiCellId`s — the standard Delaunay/Voronoi duality (a Voronoi edge
-separates exactly the two cells of the Delaunay edge it's dual to). Storing
-it again would be redundant, cache-friendly-but-pointless duplication this
-crate's existing code doesn't do elsewhere (`ConstrainedTriangulation2`
-similarly derives rather than duplicates wherever the underlying
-`Triangulation2` already has the answer).
+### Owned self-sufficiency
+
+Review flagged a real gap in the original sketch (`VoronoiEdgeRecord {
+dual: EdgeId, endpoints: VoronoiEdgeEndpoints }`, `edge_cells` derived by
+re-resolving `dual` through `self.delaunay` on every call): while
+*functionally* correct as long as a `&Voronoi2` is in hand (which it
+always is, for every method call, under the owned design), it made the
+edge's *canonical* fact — which two sites it separates — only indirectly
+reachable, through what's structurally provenance data. Two consequences
+that motivate storing `cells` directly instead:
+
+1. **Canonical-key sorting (below) needs `cells` as sortable data
+   anyway** — computing it fresh from `source_edge` on every comparison
+   during construction, rather than once and storing it, is pure
+   overhead for no benefit.
+2. **Forward-compatible for any future API that yields a detached,
+   owned `VoronoiEdge`** (e.g. an `edges().map(|id| voronoi.edge(id))`-style
+   accessor returning the record by value rather than by id) — with
+   `cells` stored directly, such a value is immediately self-describing;
+   with only `source_edge`, it would need the caller to *also* hold onto
+   `&Voronoi2`/`&Triangulation2` just to interpret a value they already
+   have in hand.
+
+`source_edge` is kept, explicitly demoted to provenance/debugging value —
+dropping it entirely would lose real information (which specific Delaunay
+edge produced this, useful for visualization/debugging against the
+underlying `Triangulation2`), it's just no longer load-bearing for
+interpreting the edge's own meaning.
 
 ### Construction algorithm (for the design record, not code to write yet)
 
 1. Union-find over `0..faces.len()`; for each interior edge (2 incident
    faces), union them iff `cocircular(f1, f2)` (defined above).
-2. Resolve to canonical groups; assign each a dense `VoronoiVertexId` in an
-   order that's a deterministic function of the (already order-independent)
-   `Triangulation2` — e.g. sorted by each group's minimum member `FaceId`,
-   *not* by union-find's own internal representative-selection order,
-   which is an implementation detail that must not leak into the public
-   numbering. This is what makes "input point order doesn't matter" and
-   "which cocircular diagonal `delaunay2` happened to pick doesn't matter"
-   both hold for `VoronoiVertexId` assignment too, not just for grouping.
-3. Build `face_group` (dense, size `faces.len()`) and `group_faces`
-   (inverse) from the resolved groups.
-4. For each `EdgeId`, classify per "Excluding spurious edges" above;
-   collect the non-excluded ones into the dense `edges` vec.
-5. Iterate `delaunay.edges()`/`faces()` themselves in their own natural
-   (already-deterministic) order throughout — no `HashMap` iteration
-   anywhere in this pass, to avoid reintroducing the exact
-   order-dependence step 2 is designed to eliminate.
+2. Resolve to canonical groups (connected components of `FaceId`).
+3. **Canonical `VoronoiVertexId` assignment.** For each group, compute its
+   canonical key: the sorted, deduplicated set of every `VertexId` across
+   all member faces (i.e. the full set of Delaunay sites incident to that
+   Voronoi vertex — not the union-find root, not the minimum member
+   `FaceId`, not any other internal-bookkeeping artifact). Sort all groups
+   by this key (lexicographic over each group's sorted `VertexId.raw()`
+   list) and assign `VoronoiVertexId(0), (1), (2), ...` in that order.
+   This is what makes "which cocircular diagonal `delaunay2` happened to
+   pick doesn't matter" hold for the actual **numbering**, not just the
+   topology-up-to-isomorphism: two differently-triangulated Delaunay
+   inputs of the *same* point set now provably produce identical
+   `Voronoi2` output, id-for-id, not merely isomorphic output.
+4. Build `face_group` (dense, size `faces.len()`) and `group_faces`
+   (inverse) from the canonically-numbered groups.
+5. For each `EdgeId`, classify per "Excluding spurious edges" above.
+   **Canonical `VoronoiEdgeId` assignment**: for each surviving edge,
+   compute its canonical key as the sorted pair of its two `VoronoiCellId`s
+   (by underlying `VertexId.raw()`) — sort all surviving edges by this key
+   and assign `VoronoiEdgeId(0), (1), (2), ...` in that order, same
+   discipline as step 3, for the same reason.
+6. Iterate `delaunay.edges()`/`faces()` themselves in their own natural
+   (already-deterministic) order throughout construction — no `HashMap`
+   iteration anywhere in this pass (the canonical-key sort in steps 3/5
+   is what supplies determinism at the numbering level; an incidental
+   `HashMap`-iteration-order dependency anywhere else in the pass would
+   silently undermine it).
 
 ## Ownership and lifetime
 
@@ -308,11 +396,15 @@ left to be true "by luck"):
 1. **Input point order doesn't matter.** Inherited from `delaunay2`'s own
    documented order-independence (canonical sort before insertion) —
    `Voronoi2` adds no new order-dependence as long as construction avoids
-   `HashMap` iteration (see algorithm step 5).
+   `HashMap` iteration (see algorithm step 6).
 2. **Independent of which cocircular diagonal `delaunay2` picked.**
    Guaranteed by the cocircular-grouping correctness argument above: any
    valid tie-break triangulation of the same cocircular group produces the
-   same connected component, hence the same merged `VoronoiVertexId`.
+   same connected component. Strengthened by the canonical-key id
+   assignment (algorithm steps 3/5): the same connected component also
+   gets the same `VoronoiVertexId` *number* across differently-triangulated
+   inputs of the same point set, not merely an isomorphic one — see
+   "Canonical-topology property tests".
 3. **Exactly one `VoronoiCellId` per Delaunay site.** True by construction
    — `VoronoiCellId` wraps `VertexId` directly, no filtering.
 4. **Exactly one `VoronoiEdgeId` per non-degenerate interior Delaunay
@@ -390,12 +482,23 @@ constructor) this design deliberately doesn't take on for 0.5.0.
   correctly-rounded), the same category of work `ADR-004`'s Phase 5
   section treats as deliberate, separately-verified work, not something
   to bundle casually into a structural change. See "Revisit when".
+- **Deriving `edge_cells` on demand via `source_edge` instead of storing
+  `cells` directly on `VoronoiEdge`.** This was this ADR's own first
+  draft, revised after review: functionally correct under the owned
+  design (every method call has `&self.delaunay` available), but left
+  the edge's actual canonical fact — which two sites it separates — only
+  indirectly reachable through what is structurally provenance data, and
+  meant re-deriving it on every canonical-key sort comparison during
+  construction for no benefit. See "Owned self-sufficiency" above.
 
 ## Compatibility risk
 
-- This design adds only new public items (`Voronoi2`, three new id types,
-  `VoronoiEdgeEndpoints`, one free function) — zero risk to any existing
-  public API.
+- This design adds only new public items (`Voronoi2`, `VoronoiEdge`, three
+  new id types, `VoronoiEdgeKind`, one free function) — zero risk to any
+  existing public API.
+- `VoronoiEdgeKind` is `#[non_exhaustive]` from the start (see "Unbounded
+  topology") — a future `Line` variant for 1-2 site support is additive,
+  not a repeat of the 0.2.0→0.3.0 `CdtError` situation.
 - No fallible constructor is proposed (`voronoi2` always succeeds — even
   degenerate input just produces an empty `Voronoi2`, matching
   `delaunay2`'s own "degenerate is a valid, representable value" policy),
@@ -424,12 +527,12 @@ constructor) this design deliberately doesn't take on for 0.5.0.
    isn't comparing two *different* representations of the same
    quantity), but named explicitly so a future reader doesn't wonder
    about it.
-3. **Deterministic `VoronoiVertexId` assignment order** — must be a
-   function of the `Triangulation2`'s own structure alone, not of
-   union-find's internal representative-selection or any
-   `HashMap`-iteration order. Construction algorithm step 2/5 above name
-   the specific discipline (sort by minimum member `FaceId`; never
-   iterate a `HashMap`) — worth a dedicated property test using the same
+3. **Deterministic `VoronoiVertexId`/`VoronoiEdgeId` assignment order** —
+   must be a function of the `Triangulation2`'s own structure (site
+   identity) alone, not of union-find's internal representative-selection
+   or any `HashMap`-iteration order. Construction algorithm steps 3/5/6
+   above name the specific discipline (canonical site-set/cell-pair sort
+   keys; never iterate a `HashMap`) — worth a dedicated property test using the same
    `assemble_triangulation`-based direct-construction technique as the
    diagonal-independence acceptance test below (two differently-built
    `Triangulation2`s that are topologically equivalent but not
@@ -485,13 +588,107 @@ constructor) this design deliberately doesn't take on for 0.5.0.
   not against `delaunay2` itself misbehaving.
 - Every `VoronoiCellId` round-trips through `cell_site`/back to a real
   `Triangulation2` vertex; every `VoronoiEdgeId` round-trips through
-  `dual_delaunay_edge`/`edge_endpoints`/`edge_cells` consistently with the
+  `dual_delaunay_edge`/`edge_kind`/`edge_cells` consistently with the
   underlying `Triangulation2`'s own `edge_vertices`/`adjacent_faces`;
   every `VoronoiVertexId`'s `delaunay_faces` are mutually cocircular
   (or the group is a single face) and pairwise Delaunay-adjacent
   (connected, not just individually cocircular with some common
   reference — i.e. actually re-derive the connected-component property
   from the stored group, not just trust construction).
+
+### Canonical-topology property tests (most important — flagged by review)
+
+The tests above check individual invariants; these check the actual claim
+this ADR is built on — that `Voronoi2` is genuinely independent of *which*
+legal Delaunay triangulation of a cocircular point set it was built from,
+compared as **canonical representations**, not raw ids (raw
+`VoronoiVertexId`/`VoronoiEdgeId` values are only guaranteed equal across
+differently-triangulated-but-equal inputs *because* of the canonical-key
+assignment above — the comparison should still be done at the canonical
+level, both to test that guarantee itself and to keep the test
+meaningful even if the canonical-key scheme changes later). Canonical
+representation for comparison purposes:
+
+- A cell, as its site: `cell_site(cell)`.
+- A Voronoi vertex, as the sorted set of incident sites:
+  `{cell_site(c) : c ∈ cells sharing an edge with this vertex}`, or
+  equivalently the sorted union of `Triangulation2::face_vertices` over
+  `delaunay_faces(vertex)` — matches the same key used for canonical id
+  assignment, so this doubles as a direct test of that assignment too.
+- A Voronoi edge, as `(sorted [cell_site; 2], kind-shape)` where
+  "kind-shape" distinguishes `Bounded`/`Unbounded` but not specific
+  `VoronoiVertexId` values (those are only meaningful *within* one
+  `Voronoi2`, not across two independently constructed ones being
+  compared).
+
+**Constructing multiple legal triangulations of the same cocircular point
+set directly** (not through `delaunay2`, which is deterministic and would
+only ever produce one — see the diagonal-independence acceptance test
+above): build each variant via `assemble_triangulation` from the same
+vertex list with different face lists.
+
+- **4 cocircular points**: both of the two possible diagonals.
+- **5 cocircular points**: multiple fan triangulations (from each of the 5
+  points) and at least one non-fan ("zigzag") triangulation.
+- **6-10 cocircular points**: generate a diverse sample by legal edge
+  flips. For an input where *every* point is on one shared circle, every
+  internal diagonal is flippable without leaving the cocircular-Delaunay
+  family — flipping diagonal `(a,c)` of quad `a,b,c,d` to `(b,d)` keeps
+  all four points on the same shared circle, so `incircle(...) == Zero`
+  continues to hold either way. Start from one triangulation (e.g. a fan)
+  and apply a random sequence of legal flips to generate several
+  combinatorially different triangulations of the same point set.
+- For every variant of the same point set: build `Voronoi2`, canonicalize,
+  and assert **all variants produce an identical canonical representation**
+  — same cell set, same set of (incident-site-set) Voronoi vertices, same
+  set of (site-pair, kind-shape) Voronoi edges.
+
+**Mixed/partial cocircularity** (not everything cocircular at once):
+
+- A larger, otherwise-generic random point cloud with one embedded
+  4-point-exactly-cocircular cluster → only that cluster's faces merge;
+  every other Voronoi vertex stays a singleton (one Delaunay face each).
+- Two separate, independent cocircular clusters within one point cloud
+  (different circles, non-overlapping) → each merges independently into
+  its own `VoronoiVertexId`; confirm they do **not** merge into each
+  other and nothing about one cluster's grouping leaks into the other's.
+- **Near-cocircular but not exactly cocircular** input (`incircle != Zero`
+  by a small but nonzero margin — e.g. take an exactly-cocircular
+  4-point configuration and perturb one coordinate by the smallest
+  representable step, `f64::next_up`/`next_down` or equivalent): confirm
+  **no merge happens**. This is the negative-case complement to every
+  positive cocircular test above, and the one that would catch a real bug
+  (an accidentally epsilon-based or otherwise non-exact comparison
+  standing in for the strict `Sign::Zero` test) rather than a merely
+  incomplete one — the whole design's correctness rests on `incircle`'s
+  exactness, and this is the test that would fail first if that were
+  ever compromised.
+
+## Recommended additional API (optional for 0.5.0)
+
+```rust
+impl Voronoi2 {
+    /// A cell's bounding edges, in order: cyclic for a bounded cell,
+    /// ray-to-ray for an unbounded one (i.e. starting and ending at its
+    /// two Unbounded edges, with every Bounded edge in between in
+    /// walk order).
+    pub fn cell_edges(&self, cell: VoronoiCellId) -> impl Iterator<Item = VoronoiEdgeId> + '_;
+}
+```
+
+Ordered (not just unordered-set) cell boundaries are genuinely valuable
+for a topology-only API to not read as "just an adjacency graph" — and
+should be derivable from the existing Delaunay vertex-star structure
+(walking `neighboring_faces`/`face_vertices`'s documented "index `k`
+opposite vertex `k`" local-edge convention around a shared vertex).
+`Triangulation2` doesn't currently expose an *ordered* vertex-star walk
+directly, though (only unordered `edges()`/`neighboring_faces()`
+scanning), so implementing this correctly is real, nontrivial work — not
+required for 0.5.0's minimum viable API (nothing else in this ADR depends
+on it), but valuable enough to record here rather than lose. Add if the
+implementation cost turns out low once the rest of this design is coded;
+defer past 0.5.0 otherwise, same "don't over-fix ahead of a real need"
+discipline as everything else this ADR defers.
 
 ## Explicitly out of scope for 0.5.0
 
