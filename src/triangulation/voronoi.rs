@@ -393,7 +393,7 @@ impl Voronoi2 {
 
 #[cfg(test)]
 mod tests {
-    use super::super::delaunay2::delaunay2;
+    use super::super::delaunay2::{assemble_triangulation, delaunay2};
     use super::*;
     use crate::primitives::Point2;
 
@@ -469,5 +469,155 @@ mod tests {
 
         assert!(!v.group_faces.is_empty());
         assert_eq!(v.validate_voronoi_topology(), Vec::new());
+    }
+
+    // -- Canonical-topology normalization tests (ADR-007) --
+    //
+    // delaunay2() canonically sorts its input before insertion, so it is
+    // a deterministic function of the input *set*, not order -- it can
+    // never itself be coaxed into picking a different diagonal among
+    // cocircular points. Different triangulations of the same cocircular
+    // point set are instead built directly via assemble_triangulation,
+    // using the exact same `pts` (and so the exact same VertexId
+    // numbering) each time -- which lets the tests check that canonical
+    // ID assignment makes differently-triangulated-but-topologically-
+    // equal inputs produce *identical*, not merely isomorphic, output.
+
+    /// 12 exact lattice points on the circle x^2+y^2=25, in CCW angular
+    /// order -- small integers, so `incircle` is exactly (not just
+    /// numerically) zero for any 4 of them.
+    fn cocircular_lattice_points(n: usize) -> Vec<Point2> {
+        const ALL: [(f64, f64); 12] = [
+            (5.0, 0.0),
+            (4.0, 3.0),
+            (3.0, 4.0),
+            (0.0, 5.0),
+            (-3.0, 4.0),
+            (-4.0, 3.0),
+            (-5.0, 0.0),
+            (-4.0, -3.0),
+            (-3.0, -4.0),
+            (0.0, -5.0),
+            (3.0, -4.0),
+            (4.0, -3.0),
+        ];
+        assert!(n <= ALL.len());
+        ALL[..n].iter().map(|&(x, y)| pt(x, y)).collect()
+    }
+
+    /// Fans `n` CCW-ordered convex points (indices `0..n`) out from
+    /// vertex `start`: triangles `(start, start+i, start+i+1)` for
+    /// `i = 1..=n-2`, indices mod `n`. A different `start` picks a
+    /// different, but equally valid, triangulation of the same point set.
+    fn fan_from(n: usize, start: usize) -> Vec<[VertexId; 3]> {
+        (1..n - 1)
+            .map(|i| {
+                let a = start % n;
+                let b = (start + i) % n;
+                let c = (start + i + 1) % n;
+                [VertexId(a as u32), VertexId(b as u32), VertexId(c as u32)]
+            })
+            .collect()
+    }
+
+    /// A face group's canonical key (sorted-dedup site `VertexId`s),
+    /// recomputed independently of any incidental group/scan order.
+    fn group_site_set(v: &Voronoi2, g: VoronoiVertexId) -> Vec<u32> {
+        group_key(&v.delaunay, &v.group_faces[g.0 as usize])
+    }
+
+    /// Every group's canonical key, in `VoronoiVertexId` order.
+    fn canonical_groups(v: &Voronoi2) -> Vec<Vec<u32>> {
+        v.group_faces
+            .iter()
+            .map(|faces| group_key(&v.delaunay, faces))
+            .collect()
+    }
+
+    /// Every edge's canonical representation: the sorted site pair it
+    /// separates, and its endpoint(s) translated from (per-instance)
+    /// `VoronoiVertexId` to (instance-independent) site sets -- exactly
+    /// the "cell-as-site, vertex-as-sorted-incident-site-set" comparison
+    /// ADR-007 specifies, dropping the incidental `source_edge`/raw-id
+    /// fields entirely.
+    fn canonical_edges(v: &Voronoi2) -> Vec<(Vec<u32>, Vec<Vec<u32>>)> {
+        let mut out: Vec<_> = v
+            .edges
+            .iter()
+            .map(|e| {
+                let cell_key = edge_key(e.cells).to_vec();
+                let mut endpoints: Vec<Vec<u32>> = match e.kind {
+                    VoronoiEdgeKind::Bounded { vertices } => {
+                        vertices.iter().map(|&g| group_site_set(v, g)).collect()
+                    }
+                    VoronoiEdgeKind::Unbounded { finite_vertex } => {
+                        vec![group_site_set(v, finite_vertex)]
+                    }
+                };
+                endpoints.sort();
+                (cell_key, endpoints)
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// Asserts a fully cocircular convex `n`-gon collapses to exactly one
+    /// Voronoi vertex with `n` Unbounded hull edges and no interior
+    /// (Bounded) edges -- true regardless of which triangulation of it
+    /// was fed in, since every pair of adjacent faces in any
+    /// triangulation of mutually cocircular points tests cocircular.
+    fn assert_single_cocircular_group(v: &Voronoi2, n_sites: usize) {
+        assert_eq!(v.group_faces.len(), 1);
+        assert_eq!(v.edges.len(), n_sites);
+        assert!(
+            v.edges
+                .iter()
+                .all(|e| matches!(e.kind, VoronoiEdgeKind::Unbounded { .. }))
+        );
+        assert!(v.validate_voronoi_topology().is_empty());
+    }
+
+    #[test]
+    fn square_both_diagonals_produce_identical_canonical_topology() {
+        let pts = vec![pt(0.0, 0.0), pt(2.0, 0.0), pt(2.0, 2.0), pt(0.0, 2.0)];
+
+        let diagonal_a = voronoi2(assemble_triangulation(pts.clone(), fan_from(4, 0)));
+        let diagonal_b = voronoi2(assemble_triangulation(pts, fan_from(4, 1)));
+
+        assert_single_cocircular_group(&diagonal_a, 4);
+        assert_single_cocircular_group(&diagonal_b, 4);
+        assert_eq!(canonical_groups(&diagonal_a), canonical_groups(&diagonal_b));
+        assert_eq!(canonical_edges(&diagonal_a), canonical_edges(&diagonal_b));
+    }
+
+    #[test]
+    fn five_cocircular_points_multiple_fans_produce_identical_canonical_topology() {
+        let pts = cocircular_lattice_points(5);
+
+        let fan_0 = voronoi2(assemble_triangulation(pts.clone(), fan_from(5, 0)));
+        let fan_2 = voronoi2(assemble_triangulation(pts, fan_from(5, 2)));
+
+        assert_single_cocircular_group(&fan_0, 5);
+        assert_single_cocircular_group(&fan_2, 5);
+        assert_eq!(canonical_groups(&fan_0), canonical_groups(&fan_2));
+        assert_eq!(canonical_edges(&fan_0), canonical_edges(&fan_2));
+    }
+
+    #[test]
+    fn eight_cocircular_points_multiple_fans_produce_identical_canonical_topology() {
+        let pts = cocircular_lattice_points(8);
+
+        let fan_0 = voronoi2(assemble_triangulation(pts.clone(), fan_from(8, 0)));
+        let fan_3 = voronoi2(assemble_triangulation(pts.clone(), fan_from(8, 3)));
+        let fan_6 = voronoi2(assemble_triangulation(pts, fan_from(8, 6)));
+
+        for v in [&fan_0, &fan_3, &fan_6] {
+            assert_single_cocircular_group(v, 8);
+        }
+        assert_eq!(canonical_groups(&fan_0), canonical_groups(&fan_3));
+        assert_eq!(canonical_groups(&fan_0), canonical_groups(&fan_6));
+        assert_eq!(canonical_edges(&fan_0), canonical_edges(&fan_3));
+        assert_eq!(canonical_edges(&fan_0), canonical_edges(&fan_6));
     }
 }
