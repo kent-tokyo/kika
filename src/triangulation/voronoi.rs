@@ -1,19 +1,13 @@
 //! Voronoi diagram topology: the dual of a [`Triangulation2`], built
 //! without generating any Voronoi coordinates.
 //!
-//! Phase 7A (ADR-007): internal data model, the [`voronoi2`] constructor,
-//! an internal validator, and canonical-topology normalization tests.
-//! Not yet reachable outside `triangulation::` -- no query API, no
-//! coordinates (circumcenters), no clipping. See
+//! Phase 7A (ADR-007) built the internal data model, the [`voronoi2`]
+//! constructor, and an internal validator. Phase 7B adds the public query
+//! API below (`cells`, `vertices`, `edges`, and the accessors on each).
+//! Still no coordinates (circumcenters), clipping, nearest-neighbor, or
+//! ordered `cell_edges` walk -- those remain later phases. See
 //! `docs/adr/ADR-007-voronoi-diagram-topology.md` for the full design and
 //! the correctness argument this module implements.
-//!
-//! `dead_code` is allowed at the module level: every item here is
-//! exercised by this file's own tests, but nothing in the crate's normal
-//! (non-test) build calls into this module yet, which the lint can't
-//! distinguish from genuinely orphaned code. Remove this once Phase 7B
-//! adds the public query API and re-exports it.
-#![allow(dead_code)]
 
 use super::delaunay2::Triangulation2;
 use super::ids::{EdgeId, FaceId, VertexId};
@@ -21,6 +15,11 @@ use crate::predicates::{Sign, incircle};
 
 /// A Voronoi cell, identified with the [`VertexId`] of the Delaunay site
 /// it surrounds -- a true bijection, so no separate cell table is kept.
+///
+/// Valid only for the [`Voronoi2`] that produced it -- comparing or
+/// indexing with a handle from a different `Voronoi2` is not checked and
+/// will silently look up the wrong element or panic (same convention as
+/// [`VertexId`]'s own cross-triangulation caveat).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VoronoiCellId(pub(super) VertexId);
 
@@ -29,6 +28,8 @@ pub struct VoronoiCellId(pub(super) VertexId);
 /// ADR-007). Usually one face, but every face in a cocircular cluster
 /// (e.g. all faces of a triangulated square) shares a single
 /// `VoronoiVertexId`, since they share a single true circumcenter.
+///
+/// See [`VoronoiCellId`]'s doc comment for the cross-`Voronoi2` caveat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VoronoiVertexId(pub(super) u32);
 
@@ -36,6 +37,8 @@ pub struct VoronoiVertexId(pub(super) u32);
 /// different face groups (an excluded same-group Delaunay edge is a
 /// spurious artifact of the input triangulation's tie-break, not a real
 /// Voronoi edge -- see [`voronoi2`]).
+///
+/// See [`VoronoiCellId`]'s doc comment for the cross-`Voronoi2` caveat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VoronoiEdgeId(pub(super) u32);
 
@@ -82,8 +85,9 @@ pub struct VoronoiEdge {
 /// [`super::ConstrainedTriangulation2`]'s precedent.
 ///
 /// Carries no coordinates for its own vertices -- only which cells,
-/// vertices, and edges exist and how they connect. Circumcenter
-/// computation and clipping are a later phase (ADR-007 Phase 7B/7C).
+/// vertices, and edges exist and how they connect (query API below).
+/// Circumcenter computation and clipping are a later phase (ADR-007
+/// Phase 7C).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Voronoi2 {
     delaunay: Triangulation2,
@@ -183,7 +187,31 @@ fn third_vertex(delaunay: &Triangulation2, face: FaceId, u: VertexId, v: VertexI
 /// merely isomorphic) output. Always succeeds -- no fallible variant is
 /// needed, since every input, including degenerate ones, has a
 /// well-defined (possibly empty) dual.
-pub(super) fn voronoi2(delaunay: Triangulation2) -> Voronoi2 {
+///
+/// # Examples
+///
+/// ```
+/// use kika::{Point2, VoronoiEdgeKind, delaunay2, voronoi2};
+///
+/// let pts = [
+///     Point2::new(0.0, 0.0).unwrap(),
+///     Point2::new(4.0, 0.0).unwrap(),
+///     Point2::new(0.0, 4.0).unwrap(),
+/// ];
+/// let voronoi = voronoi2(delaunay2(&pts));
+///
+/// // One cell per site, one Voronoi vertex (the triangle's circumcenter),
+/// // and 3 unbounded rays -- no interior Delaunay edge to exclude.
+/// assert_eq!(voronoi.cells().count(), 3);
+/// assert_eq!(voronoi.vertices().count(), 1);
+/// for edge in voronoi.edges() {
+///     assert!(matches!(
+///         voronoi.edge_kind(edge),
+///         VoronoiEdgeKind::Unbounded { .. }
+///     ));
+/// }
+/// ```
+pub fn voronoi2(delaunay: Triangulation2) -> Voronoi2 {
     let n_faces = delaunay.faces().count();
     let mut uf = UnionFind::new(n_faces);
     let coord: Vec<_> = delaunay.vertices().map(|(_, p)| p).collect();
@@ -270,6 +298,107 @@ pub(super) fn voronoi2(delaunay: Triangulation2) -> Voronoi2 {
         face_group,
         group_faces,
         edges: raw_edges,
+    }
+}
+
+impl Voronoi2 {
+    /// Every cell -- one per Delaunay site, a bijection with
+    /// [`Triangulation2::vertices`].
+    pub fn cells(&self) -> impl Iterator<Item = VoronoiCellId> + '_ {
+        self.delaunay.vertices().map(|(v, _)| VoronoiCellId(v))
+    }
+
+    /// Every Voronoi vertex (one per cocircular-merged Delaunay face
+    /// group).
+    pub fn vertices(&self) -> impl Iterator<Item = VoronoiVertexId> + '_ {
+        (0..self.group_faces.len()).map(|i| VoronoiVertexId(i as u32))
+    }
+
+    /// Every Voronoi edge.
+    pub fn edges(&self) -> impl Iterator<Item = VoronoiEdgeId> + '_ {
+        (0..self.edges.len()).map(|i| VoronoiEdgeId(i as u32))
+    }
+
+    /// The Delaunay site `cell` surrounds.
+    pub fn cell_site(&self, cell: VoronoiCellId) -> VertexId {
+        cell.0
+    }
+
+    /// Every cell adjacent to `cell` across a Voronoi edge -- the other
+    /// endpoint of every edge incident to `cell` (an excluded,
+    /// same-group Delaunay edge never contributes one, since it never
+    /// became a `VoronoiEdge` at all).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kika::{Point2, delaunay2, voronoi2};
+    ///
+    /// let pts = [
+    ///     Point2::new(0.0, 0.0).unwrap(),
+    ///     Point2::new(4.0, 0.0).unwrap(),
+    ///     Point2::new(4.0, 4.0).unwrap(),
+    ///     Point2::new(0.0, 4.0).unwrap(),
+    /// ];
+    /// let voronoi = voronoi2(delaunay2(&pts));
+    /// let cell = voronoi.cells().next().unwrap();
+    ///
+    /// // A square's corners are all hull vertices -- every cell is unbounded.
+    /// assert!(voronoi.cell_is_unbounded(cell));
+    /// // Each corner is Voronoi-adjacent to the 2 corners sharing a square
+    /// // edge, not to the diagonally-opposite corner (that Delaunay edge
+    /// // is cocircular with this one and was excluded).
+    /// assert_eq!(voronoi.neighboring_cells(cell).count(), 2);
+    /// ```
+    pub fn neighboring_cells(
+        &self,
+        cell: VoronoiCellId,
+    ) -> impl Iterator<Item = VoronoiCellId> + '_ {
+        self.edges.iter().filter_map(move |e| {
+            if e.cells[0] == cell {
+                Some(e.cells[1])
+            } else if e.cells[1] == cell {
+                Some(e.cells[0])
+            } else {
+                None
+            }
+        })
+    }
+
+    /// `true` iff `cell` has at least one `Unbounded` edge -- equivalently,
+    /// iff its site lies on the Delaunay triangulation's convex hull. A
+    /// hull site always has a boundary Delaunay edge, and a boundary edge
+    /// (only ever 1 incident face) can never be excluded as same-group,
+    /// so this can never disagree with the hull-membership definition.
+    pub fn cell_is_unbounded(&self, cell: VoronoiCellId) -> bool {
+        self.edges.iter().any(|e| {
+            (e.cells[0] == cell || e.cells[1] == cell)
+                && matches!(e.kind, VoronoiEdgeKind::Unbounded { .. })
+        })
+    }
+
+    /// `edge`'s two cells.
+    pub fn edge_cells(&self, edge: VoronoiEdgeId) -> [VoronoiCellId; 2] {
+        self.edges[edge.0 as usize].cells
+    }
+
+    /// `edge`'s shape: a finite segment between two Voronoi vertices, or
+    /// an infinite ray from one.
+    pub fn edge_kind(&self, edge: VoronoiEdgeId) -> &VoronoiEdgeKind {
+        &self.edges[edge.0 as usize].kind
+    }
+
+    /// The Delaunay edge `edge` is dual to -- provenance/debugging
+    /// metadata, not needed to interpret `edge`'s cells or kind.
+    pub fn dual_delaunay_edge(&self, edge: VoronoiEdgeId) -> EdgeId {
+        self.edges[edge.0 as usize].source_edge
+    }
+
+    /// Every Delaunay face merged into `vertex`'s group -- one face for
+    /// an ordinary Voronoi vertex, more than one where cocircular faces
+    /// were merged (ADR-007).
+    pub fn vertex_delaunay_faces(&self, vertex: VoronoiVertexId) -> &[FaceId] {
+        &self.group_faces[vertex.0 as usize]
     }
 }
 
@@ -682,5 +811,75 @@ mod tests {
             "the remaining 5 edges are the pentagon's hull, all Unbounded"
         );
         assert!(v.validate_voronoi_topology().is_empty());
+    }
+
+    // -- Query API (Phase 7B) --
+
+    #[test]
+    fn query_api_matches_underlying_edge_and_group_data() {
+        let pts = vec![pt(0.0, 0.0), pt(2.0, 0.0), pt(2.0, 2.0), pt(0.0, 2.0)];
+        let v = voronoi2(delaunay2(&pts));
+
+        assert_eq!(v.cells().count(), v.delaunay.vertices().count());
+        assert_eq!(v.vertices().count(), v.group_faces.len());
+        assert_eq!(v.edges().count(), v.edges.len());
+
+        for (i, id) in v.edges().enumerate() {
+            let raw = &v.edges[i];
+            assert_eq!(v.edge_cells(id), raw.cells);
+            assert_eq!(*v.edge_kind(id), raw.kind);
+            assert_eq!(v.dual_delaunay_edge(id), raw.source_edge);
+        }
+
+        for (i, id) in v.vertices().enumerate() {
+            assert_eq!(v.vertex_delaunay_faces(id), v.group_faces[i].as_slice());
+        }
+
+        for cell in v.cells() {
+            assert_eq!(cell.0, v.cell_site(cell));
+        }
+    }
+
+    #[test]
+    fn neighboring_and_unbounded_queries_on_the_mixed_fixture() {
+        // Same construction as
+        // cocircular_cluster_plus_outlier_mixes_bounded_and_excluded_edges:
+        // a cocircular square (p0..p3) plus a far outlier p4 pulled in as
+        // an ear against edge p1-p2.
+        let pts = vec![
+            pt(0.0, 0.0),
+            pt(2.0, 0.0),
+            pt(2.0, 2.0),
+            pt(0.0, 2.0),
+            pt(6.0, 1.0),
+        ];
+        let faces = vec![
+            [VertexId(1), VertexId(4), VertexId(2)],
+            [VertexId(0), VertexId(1), VertexId(2)],
+            [VertexId(0), VertexId(2), VertexId(3)],
+        ];
+        let v = voronoi2(assemble_triangulation(pts, faces));
+        let p0 = VoronoiCellId(VertexId(0));
+
+        assert!(
+            v.cell_is_unbounded(p0),
+            "p0 is a hull vertex of the pentagon"
+        );
+        let neighbor_sites: Vec<VertexId> =
+            v.neighboring_cells(p0).map(|c| v.cell_site(c)).collect();
+        assert_eq!(
+            neighbor_sites.len(),
+            2,
+            "p0-p2 is cocircular and excluded, so p2 must not appear as a neighbor"
+        );
+        assert!(neighbor_sites.contains(&VertexId(1)));
+        assert!(neighbor_sites.contains(&VertexId(3)));
+
+        // Symmetry: p0 is a neighbor of each of its own neighbors.
+        for cell in v.cells() {
+            for neighbor in v.neighboring_cells(cell).collect::<Vec<_>>() {
+                assert!(v.neighboring_cells(neighbor).any(|c| c == cell));
+            }
+        }
     }
 }
