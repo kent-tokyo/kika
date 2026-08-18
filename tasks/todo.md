@@ -1,5 +1,48 @@
 # Todo
 
+## Done (0.5.0 release: published)
+
+- [x] Release preparation (5 commits, `7978207`..`ef5cdda`): version
+      bump, `CHANGELOG.md` `[0.5.0] - 2026-08-19` entry, `README.md` ×3
+      languages synced (also fixed a pre-existing translation-drift
+      issue in `README_ja.md`/`README_zh.md`'s Roadmap closing
+      sentence), `docs/degeneracy-policy.md` gained a Voronoi
+      degeneracies table (each row backed by an actual run, not just
+      derived), `docs/compatibility.md` synced, `examples/voronoi.rs`
+      added (self-checking, matching `constrained_delaunay.rs`'s
+      precedent), `docs/release-checklist.md` rewritten with real
+      verification results (320 tests, MSRV, wasm native+node, `cargo
+      deny`, `cargo package --list`, `cargo publish --dry-run`).
+- [x] Pushed, CI green (all 10 jobs, run `32183491104`).
+- [x] Clean-worktree re-verification via a genuine fresh clone (not
+      just `--allow-dirty` on the dev tree): `cargo package --list` (98
+      files), `cargo publish --dry-run`, confirmed `.claude/` and
+      `ROADMAP.md` both absent -- this caught a real, if
+      environment-local, issue: the dev tree's own dry-run had
+      `.claude/scheduled_tasks.lock` (this session's tooling state,
+      never git-tracked) leak into its local package listing. Traced to
+      root cause via `.github/workflows/publish.yml` (fresh
+      `actions/checkout`, so that file never exists there) rather than
+      assumed harmless.
+- [x] Published via `publish.yml` (`workflow_dispatch`), confirmed on
+      crates.io (`max_version`/`newest_version` both `0.5.0`).
+      Downloaded and inspected the actual published tarball directly
+      (not just the dry-run) -- 98 files, `.claude`/`ROADMAP.md` both
+      confirmed absent from the real artifact.
+- [x] Fresh external fixture (`kika = "0.5.0"` pulled from crates.io,
+      not a path/git dependency) confirmed: `Voronoi2` construction,
+      bounded/unbounded cell detection, `cell_edges()`,
+      `validate_voronoi_topology()` clean, and -- the one that actually
+      matters -- a cocircular square exposes no spurious tie-break
+      diagonal edge (1 Voronoi vertex, 4 edges, all `Unbounded`).
+- [x] docs.rs build confirmed live (`Voronoi2`/`voronoi2` visible in the
+      generated page at `docs.rs/kika/0.5.0/kika/`).
+- [x] `v0.5.0` tag created and pushed at `ef5cdda65692fba2446442c16f23b426ffbe9b8d`;
+      GitHub Release "Kika 0.5.0" created. Final SHA check: local main =
+      origin/main = peeled `v0.5.0` tag, all matching.
+- [x] `ROADMAP.md` (internal, gitignored) updated to reflect the actual
+      shipped state -- no git commit needed for that file.
+
 ## Done (ADR-007 Phase 7C: Voronoi cell_edges + 0.5.0 readiness check)
 
 - [x] Investigated before implementing (per instruction): does
