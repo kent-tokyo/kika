@@ -442,15 +442,59 @@ pub enum VoronoiTopologyError {
         /// The Delaunay edge whose dual entry is wrong.
         source_edge: EdgeId,
     },
+    /// A Voronoi edge's two `cells` are the same cell, not two distinct
+    /// sites.
+    NonDistinctEdgeCells {
+        /// The offending edge.
+        edge: VoronoiEdgeId,
+    },
+    /// A `Bounded` edge's two endpoint vertices are the same Voronoi
+    /// vertex, not two distinct groups.
+    NonDistinctBoundedVertices {
+        /// The offending edge.
+        edge: VoronoiEdgeId,
+    },
+    /// An `Unbounded` edge's dual Delaunay edge is not actually a
+    /// convex-hull edge (recomputed from `delaunay.adjacent_faces`
+    /// independently of `edges`' own cached `kind`).
+    UnboundedEdgeNotHullDual {
+        /// The offending edge.
+        edge: VoronoiEdgeId,
+    },
+    /// The same Delaunay face appears more than once in one Voronoi
+    /// vertex's face group.
+    DuplicateFaceInGroup {
+        /// The group with a duplicate entry.
+        vertex: VoronoiVertexId,
+        /// The duplicated face.
+        face: FaceId,
+    },
 }
 
 impl Voronoi2 {
     /// Checks every structural invariant `voronoi2` is supposed to
-    /// establish: `face_group`/`group_faces` are mutual inverses, both
-    /// `group_faces` and `edges` are canonically (not incidentally)
-    /// ordered, and `edges` matches what independently recomputing each
-    /// Delaunay edge's classification against `face_group` says it
-    /// should be. Returns every violation found, not just the first.
+    /// establish: `face_group`/`group_faces` are mutual inverses with no
+    /// duplicate face in any one group, both `group_faces` and `edges`
+    /// are canonically (not incidentally) ordered, `edges` matches what
+    /// independently recomputing each Delaunay edge's classification
+    /// against `face_group` says it should be (which also covers "no
+    /// same-component edge is ever exposed" -- a same-group interior
+    /// edge's independently recomputed classification is `None`, so any
+    /// entry for it at all is an `EdgeMismatch`), every edge's two cells
+    /// are distinct, every `Bounded` edge's two vertices are distinct,
+    /// and every `Unbounded` edge's dual is actually a hull edge.
+    ///
+    /// Two invariants ADR-007 also names -- "every site has exactly one
+    /// cell" and "the neighboring-cells relation is symmetric" -- have no
+    /// corresponding check here: `VoronoiCellId` is a direct `VertexId`
+    /// wrapper with no separate cell table to desync, and
+    /// `neighboring_cells` derives its answer fresh from `edges`' own
+    /// unordered `[cell_a, cell_b]` pairs on every call, which reads
+    /// symmetrically by construction regardless of what `edges` contains
+    /// -- both are guaranteed by this module's data shape itself, not by
+    /// anything a runtime check could meaningfully fail to catch.
+    ///
+    /// Returns every violation found, not just the first.
     #[doc(hidden)]
     pub fn validate_voronoi_topology(&self) -> Vec<VoronoiTopologyError> {
         let mut errors = Vec::new();
@@ -513,6 +557,41 @@ impl Voronoi2 {
                     }
                 }
                 (None, None) => {}
+            }
+        }
+
+        for (i, faces) in self.group_faces.iter().enumerate() {
+            let mut seen = std::collections::HashSet::new();
+            for &f in faces {
+                if !seen.insert(f) {
+                    errors.push(VoronoiTopologyError::DuplicateFaceInGroup {
+                        vertex: VoronoiVertexId(i as u32),
+                        face: f,
+                    });
+                }
+            }
+        }
+
+        for (i, e) in self.edges.iter().enumerate() {
+            let edge = VoronoiEdgeId(i as u32);
+            if e.cells[0] == e.cells[1] {
+                errors.push(VoronoiTopologyError::NonDistinctEdgeCells { edge });
+            }
+            match e.kind {
+                VoronoiEdgeKind::Bounded { vertices } => {
+                    if vertices[0] == vertices[1] {
+                        errors.push(VoronoiTopologyError::NonDistinctBoundedVertices { edge });
+                    }
+                }
+                VoronoiEdgeKind::Unbounded { .. } => {
+                    let is_hull_edge = matches!(
+                        self.delaunay.adjacent_faces(e.source_edge),
+                        [Some(_), None] | [None, Some(_)]
+                    );
+                    if !is_hull_edge {
+                        errors.push(VoronoiTopologyError::UnboundedEdgeNotHullDual { edge });
+                    }
+                }
             }
         }
 
@@ -881,5 +960,86 @@ mod tests {
                 assert!(v.neighboring_cells(neighbor).any(|c| c == cell));
             }
         }
+    }
+
+    // -- Validator extension (Phase 7B) --
+    //
+    // voronoi2() itself never produces any of these 4 violations -- these
+    // tests deliberately corrupt a valid Voronoi2's private fields (only
+    // possible from within this module) to prove each check's *logic* is
+    // right, as a regression guard, not because the constructor is
+    // currently suspected of being wrong.
+
+    #[test]
+    fn validator_catches_deliberately_corrupted_invariants() {
+        let pts = vec![
+            pt(0.0, 0.0),
+            pt(2.0, 0.0),
+            pt(2.0, 2.0),
+            pt(0.0, 2.0),
+            pt(6.0, 1.0),
+        ];
+        let faces = vec![
+            [VertexId(1), VertexId(4), VertexId(2)],
+            [VertexId(0), VertexId(1), VertexId(2)],
+            [VertexId(0), VertexId(2), VertexId(3)],
+        ];
+        let valid = voronoi2(assemble_triangulation(pts, faces));
+        assert!(valid.validate_voronoi_topology().is_empty());
+
+        let bounded_i = valid
+            .edges
+            .iter()
+            .position(|e| matches!(e.kind, VoronoiEdgeKind::Bounded { .. }))
+            .expect("the fixture has exactly one Bounded edge (p1-p2)");
+        let unbounded_i = valid
+            .edges
+            .iter()
+            .position(|e| matches!(e.kind, VoronoiEdgeKind::Unbounded { .. }))
+            .expect("the fixture has 5 Unbounded hull edges");
+        let excluded_interior_edge = valid
+            .delaunay
+            .edges()
+            .find(|&e| {
+                matches!(valid.delaunay.adjacent_faces(e), [Some(_), Some(_)])
+                    && !valid.edges.iter().any(|ve| ve.source_edge == e)
+            })
+            .expect("the square's cocircular diagonal (p0-p2) is excluded and interior");
+
+        let mut broken = valid.clone();
+        broken.edges[bounded_i].cells[1] = broken.edges[bounded_i].cells[0];
+        assert!(broken.validate_voronoi_topology().contains(
+            &VoronoiTopologyError::NonDistinctEdgeCells {
+                edge: VoronoiEdgeId(bounded_i as u32)
+            }
+        ));
+
+        let mut broken = valid.clone();
+        if let VoronoiEdgeKind::Bounded { vertices } = &mut broken.edges[bounded_i].kind {
+            vertices[1] = vertices[0];
+        }
+        assert!(broken.validate_voronoi_topology().contains(
+            &VoronoiTopologyError::NonDistinctBoundedVertices {
+                edge: VoronoiEdgeId(bounded_i as u32)
+            }
+        ));
+
+        let mut broken = valid.clone();
+        broken.edges[unbounded_i].source_edge = excluded_interior_edge;
+        assert!(broken.validate_voronoi_topology().contains(
+            &VoronoiTopologyError::UnboundedEdgeNotHullDual {
+                edge: VoronoiEdgeId(unbounded_i as u32)
+            }
+        ));
+
+        let mut broken = valid.clone();
+        let dup = broken.group_faces[0][0];
+        broken.group_faces[0].push(dup);
+        assert!(broken.validate_voronoi_topology().contains(
+            &VoronoiTopologyError::DuplicateFaceInGroup {
+                vertex: VoronoiVertexId(0),
+                face: dup,
+            }
+        ));
     }
 }
