@@ -8,7 +8,7 @@
 
 Kika（「幾何」）は、堅牢な2D/3D計算幾何を目指して構築されているRustライブラリです：適応的/厳密フォールバック演算を備えた厳密述語、そして後のフェーズでは、その基盤の上に構築される三角形分割・凸包・多角形アルゴリズム。
 
-状態: **pre-alpha（Phase 1-5およびPhase 6A-6D完了）。** 0.4.0時点で、Kikaは厳密述語、2D凸包、Delaunay三角形分割、制約付きDelaunay三角形分割（狭いスコープ）、単純多角形の三角形分割（狭いスコープ）を備えた堅牢な2Dカーネルです — 実際にカバーする範囲・カバーしない範囲の詳細は[今日実装されている機能](#implemented-today)と下記の[成熟度](#maturity)の表を参照してください。まだ安定性の保証はありません。まだ存在しないものについては[ロードマップ](#roadmap)を参照してください — **KikaはCGALの代替として完成したものではありません**、将来そうしたものが構築される土台となる堅牢なカーネルです。
+状態: **pre-alpha（Phase 1-5およびPhase 6A-6D完了）。** 0.5.0時点で、Kikaは厳密述語、2D凸包、Delaunay三角形分割、制約付きDelaunay三角形分割（狭いスコープ）、単純多角形の三角形分割（穴あり・なし両対応）、そしてVoronoi図のトポロジー（頂点座標はまだ）を備えた堅牢な2Dカーネルです — 実際にカバーする範囲・カバーしない範囲の詳細は[今日実装されている機能](#implemented-today)と下記の[成熟度](#maturity)の表を参照してください。まだ安定性の保証はありません。まだ存在しないものについては[ロードマップ](#roadmap)を参照してください — **KikaはCGALの代替として完成したものではありません**、将来そうしたものが構築される土台となる堅牢なカーネルです。
 
 ## <a id="why-not-just-use-cgal"></a>なぜCGALをそのまま使わないのか？
 
@@ -49,8 +49,9 @@ Kikaの賭け、順を追って：
 * `constrained_delaunay2` / `ConstrainedTriangulation2` — 2D制約付きDelaunay三角形分割。意図的に狭いスコープです（Phase 6C）：既存の入力頂点間の交差しない制約辺のみで、自動的な交差点/Steiner点生成やリファインメントはありません。このクレート自身の`orient2d`/`incircle`/`segment_intersection_kind`述語を通じて既存のDelaunay辺をフリップすることだけで完全に構築されています — ADR-004のPhase 6再評価は、CDTには**新しい構築が不要**であると予測しており、実装はそれを裏付けています：新しい座標は一つも構築されません。制約の回復とDelaunayの復元はそれぞれ有界です（無限ループになりません）。`CdtError`は交差/共線な制約、アルゴリズムの限界超過、そして退化した点集合(点が3個未満、またはすべて共線)を型付きエラーとして報告し、panicは発生しません。
 * `triangulate_polygon` — 単純多角形の三角形分割（Phase 6D）。Phase 6CのCDTの上に構築されています：多角形のすべての辺を制約とし、（非凸な入力に対しては）多角形の外側にある凹んだポケット面を、1つの内部シード面からの純粋にトポロジカルなフラッドフィルによって破棄します — セントロイドのような構築された座標は決して使いません。Steiner点なし（すべての出力頂点は多角形自身の頂点のいずれかです）、自己交差する入力は型付きの`PolygonTriangulationError`として拒否され、CCWとCWの両方の入力を受け付け、決定論的です。完全なスコープの表については[`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)を参照してください。`Triangulation2::validate_topology()`で結果をチェックする際の注意点も含まれます（そのオイラー標数チェックは三角形分割が凸包全体をカバーしていることを前提としていますが、非凸多角形の三角形分割は意図的にそれを持ちません）。
 * `triangulate_polygon_with_holes` — 穴付き多角形三角形分割。`triangulate_polygon`自身のアルゴリズムを新しいものに置き換えるのではなく一般化したものです：穴の境界は、同じフラッドフィルが止まる、より多くの制約辺にすぎません。あるホールが別のホールの中にネストしている場合はスコープ外です（部分的なサポートではなく型付きエラー）。それ以外の拒否される入力（境界の外にあるホール、境界に接触・交差するホール、他のホールと接触・交差するホール）も同様に型付きの`PolygonTriangulationError`として扱われ、panicにはなりません。`Polygon2::relation_to`/`PointPolygonRelation`（これと同時に追加された厳密な点と多角形の述語）がホール包含チェックを支えています。
+* `Voronoi2` / `voronoi2` — トポロジーのみのVoronoi図（0.5.0）。既存の`Triangulation2`の双対であり、頂点座標（外心）、クリッピング、最近傍クエリはまだありません（意図的に後回し）。上記のDelaunay自身の共円タイブレークは1つの共円クラスタを2つ以上の三角形に分割し得ますが、`voronoi2`は`incircle(...) == Sign::Zero`をキーとするunion-findで該当するfaceを統合し、その恣意的な選択が余分なVoronoi頂点や辺として漏れ出さないようにします — 同一の共円点集合を複数の異なる三角形分割に通し、単に同型であるだけでなく同一の出力になることを確認して検証済みです。クエリAPI：`cells`/`vertices`/`edges`、`cell_site`、`neighboring_cells`、`cell_is_unbounded`、`edge_cells`、`edge_kind`、`dual_delaunay_edge`、`vertex_delaunay_faces`、そして`cell_edges`（cell境界を反時計回りに辿る順序付きの巡回。bounded/内部siteのcellは閉じた循環、unbounded/hull siteのcellは2本のrayの間の線形な並び）。既存の`Triangulation2`のface隣接構造だけから構築されており、新しいデータモデルはありません。[`docs/adr/ADR-007-voronoi-diagram-topology.md`](docs/adr/ADR-007-voronoi-diagram-topology.md)を参照。
 
-4つの述語すべてがv0.1の堅牢述語スコープを完了しており、上記のプリミティブ・交差判定・多角形・凸包・Delaunay三角形分割はPhase 2からPhase 4を完了しています。`segment_intersection`の`Proper`交差点構築（下記）でPhase 5が完了し、上記の隣接構造・制約付きDelaunay三角形分割・単純多角形三角形分割でPhase 6A-6Dが完了しています。これより先（多角形Boolean演算、厳密Voronoi）は後の話です — [ロードマップ](#roadmap)を参照。
+4つの述語すべてがv0.1の堅牢述語スコープを完了しており、上記のプリミティブ・交差判定・多角形・凸包・Delaunay三角形分割はPhase 2からPhase 4を完了しています。`segment_intersection`の`Proper`交差点構築（下記）でPhase 5が完了し、上記の隣接構造・制約付きDelaunay三角形分割・単純多角形三角形分割でPhase 6A-6Dが完了しています。Voronoi図の*トポロジー*は実装済み（上記、0.5.0）です。これより先 — 多角形Boolean演算、そして特にVoronoi頂点の*座標*（外心）— は後の話です — [ロードマップ](#roadmap)を参照。
 
 * `predicates::line_intersection`（`segment_intersection`の`Proper`ケースで内部的に使用）— このクレート初の厳密/認証された**構築**です（ADR-004準拠）。真の交差座標に最も近い正しく丸められた（同点の場合は最近偶数丸め）`f64`を返します。近似値ではありません — IEEE-754が単一の算術演算に対して行う保証を、幾何構築全体に拡張したものです。`Point2`はプレーンな`f64`のペアのままです。新しい公開型も新しい依存関係もありません。マグニチュードのスケール、混在マグニチュードの入力、経験的なフロアスイープにわたる独立した`BigRational`「これは正しく丸められた最近傍の`f64`か」オラクルに対して検証済みです — [`docs/numerical-model.md`](docs/numerical-model.md)を参照。
 
@@ -114,6 +115,30 @@ let t = triangulate_polygon(&square).unwrap();
 assert_eq!(t.len(), square.len() - 2);
 ```
 
+Voronoi図のトポロジー — `Triangulation2`の双対、頂点座標なし（こちらもdoctestされています。[`voronoi2`自身のドキュメント例](src/triangulation/voronoi.rs)として存在します）：
+
+```rust
+use kika::{Point2, VoronoiEdgeKind, delaunay2, voronoi2};
+
+let pts = [
+    Point2::new(0.0, 0.0).unwrap(),
+    Point2::new(4.0, 0.0).unwrap(),
+    Point2::new(0.0, 4.0).unwrap(),
+];
+let voronoi = voronoi2(delaunay2(&pts));
+
+// One cell per site, one Voronoi vertex (the triangle's circumcenter),
+// and 3 unbounded rays -- no interior Delaunay edge to exclude.
+assert_eq!(voronoi.cells().count(), 3);
+assert_eq!(voronoi.vertices().count(), 1);
+for edge in voronoi.edges() {
+    assert!(matches!(
+        voronoi.edge_kind(edge),
+        VoronoiEdgeKind::Unbounded { .. }
+    ));
+}
+```
+
 その他、`cargo run --example <name>`で実行できる例が[`examples/`](examples/)にあります：
 
 * [`orient2d`](examples/orient2d.rs) — 基本的な向き判定述語
@@ -124,6 +149,7 @@ assert_eq!(t.len(), square.len() - 2);
 * [`constrained_delaunay`](examples/constrained_delaunay.rs) — 特定の（Delaunayでない可能性のある）辺を強制的に残す
 * [`polygon_triangulation`](examples/polygon_triangulation.rs) — 非凸多角形、三角形数/CCW/面積のチェック付き
 * [`polygon_triangulation_with_holes`](examples/polygon_triangulation_with_holes.rs) — 2つの独立した穴をくり抜いた境界
+* [`voronoi`](examples/voronoi.rs) — 共円な正方形とオフセンターの内部点、bounded/unboundedなcell
 
 ## WASM
 
@@ -148,7 +174,7 @@ Pre-1.0であり、semverの保証はありません。一部の計算幾何ラ�
 | 三角形分割の隣接関係（頂点/辺/面クエリ） | 実装済み — `VertexId`/`EdgeId`/`FaceId`、隣接/境界クエリ、内部トポロジー検証器（ADR-006） |
 | 制約付きDelaunay | 実装済み — 狭いスコープ：既存頂点間の交差しない制約のみ、Steiner点なし（Phase 6C） |
 | 単純多角形の三角形分割 | 実装済み — Steiner点なし、自己交差する入力は拒否（Phase 6D）。穴に対応（0.4.0、`triangulate_polygon_with_holes`）— ネストした穴はスコープ外、型付きエラー |
-| Voronoi図 | 未実装 |
+| Voronoi図 | 実装済み — トポロジーのみ（0.5.0）：cells/vertices/edges、順序付き`cell_edges()`境界巡回。頂点座標（外心）、クリッピング、最近傍クエリはまだ |
 | 多角形Boolean演算 | 未実装 — 厳密性モデルはまだ未確定、ADR-004を参照 |
 | 3Dメッシュ演算 | 未実装 |
 
@@ -163,4 +189,4 @@ Pre-1.0であり、semverの保証はありません。一部の計算幾何ラ�
 
 ## <a id="roadmap"></a>ロードマップ
 
-Phase 1（堅牢述語）、Phase 2（2Dプリミティブと交差判定）、Phase 3（2D凸包）、Phase 4（2D Delaunay三角形分割）、Phase 5（認証/厳密構築 — 厳密な`Proper`線分交差点）、Phase 6A-6D（三角形分割の隣接関係、狭いスコープの制約付きDelaunay、狭いスコープの単純多角形三角形分割）が完了しています。まだ実装されていないもの：多角形/メッシュBoolean演算、厳密Voronoi構築、頂点削除、Delaunayリファインメント、メッシュ修復、サーフェス再構築、点群処理。フェーズ分けされたバックログについては[`tasks/todo.md`](tasks/todo.md)を、実際の`crates.io`/GitHubリリース前に検証済みのもの・まだ必要なものについては[`docs/release-checklist.md`](docs/release-checklist.md)を参照してください（どちらもまだ実施されていません）。
+Phase 1（堅牢述語）、Phase 2（2Dプリミティブと交差判定）、Phase 3（2D凸包）、Phase 4（2D Delaunay三角形分割）、Phase 5（認証/厳密構築 — 厳密な`Proper`線分交差点）、Phase 6A-6D（三角形分割の隣接関係、狭いスコープの制約付きDelaunay、狭いスコープの単純多角形三角形分割）、そしてVoronoi図の*トポロジー*（0.5.0）が完了しています。まだ実装されていないもの：Voronoi頂点の*座標*（外心）・クリッピング・最近傍クエリ、多角形/メッシュBoolean演算、頂点削除、Delaunayリファインメント、メッシュ修復、サーフェス再構築、点群処理。フェーズ分けされたバックログについては[`tasks/todo.md`](tasks/todo.md)を、`crates.io`/GitHubリリース前に検証済みのものについては[`docs/release-checklist.md`](docs/release-checklist.md)を参照してください（0.2.0から0.4.0まではすでにリリース済み、0.5.0は準備中 — `CHANGELOG.md`を参照）。
