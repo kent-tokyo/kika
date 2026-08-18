@@ -484,15 +484,18 @@ impl Voronoi2 {
     /// are distinct, every `Bounded` edge's two vertices are distinct,
     /// and every `Unbounded` edge's dual is actually a hull edge.
     ///
-    /// Two invariants ADR-007 also names -- "every site has exactly one
-    /// cell" and "the neighboring-cells relation is symmetric" -- have no
-    /// corresponding check here: `VoronoiCellId` is a direct `VertexId`
-    /// wrapper with no separate cell table to desync, and
-    /// `neighboring_cells` derives its answer fresh from `edges`' own
-    /// unordered `[cell_a, cell_b]` pairs on every call, which reads
-    /// symmetrically by construction regardless of what `edges` contains
-    /// -- both are guaranteed by this module's data shape itself, not by
-    /// anything a runtime check could meaningfully fail to catch.
+    /// Two invariants ADR-007 also names have no corresponding check
+    /// here. "Every site has exactly one cell" needs none:
+    /// `VoronoiCellId` is a direct `VertexId` wrapper with no separate
+    /// cell table to desync in the first place. "The neighboring-cells
+    /// relation is symmetric" is asserted by a test instead (see
+    /// `neighboring_and_unbounded_queries_on_the_mixed_fixture`), not a
+    /// validator check: `neighboring_cells` derives its answer fresh from
+    /// `edges`' own unordered `[cell_a, cell_b]` pairs on every call, so
+    /// it reads symmetrically regardless of what `edges` contains -- the
+    /// data shape admits no asymmetric entry to inject, the way the 4
+    /// checks above can each be tested by directly corrupting a
+    /// constructed `Voronoi2`'s private fields.
     ///
     /// Returns every violation found, not just the first.
     #[doc(hidden)]
@@ -677,6 +680,36 @@ mod tests {
 
         assert!(!v.group_faces.is_empty());
         assert_eq!(v.validate_voronoi_topology(), Vec::new());
+
+        // cell_is_unbounded must agree with an independent recomputation
+        // from the Delaunay hull, not just always be true -- every other
+        // test in this file uses a fully-convex point set (every site on
+        // the hull), so a 60-point generic-position cloud is the only
+        // fixture that actually has interior sites to distinguish.
+        let hull_sites: std::collections::HashSet<VertexId> = v
+            .delaunay
+            .boundary_edges()
+            .flat_map(|e| {
+                let (a, b) = v.delaunay.edge_vertices(e);
+                [a, b]
+            })
+            .collect();
+        let mut saw_interior_cell = false;
+        for cell in v.cells() {
+            let expected_unbounded = hull_sites.contains(&v.cell_site(cell));
+            assert_eq!(v.cell_is_unbounded(cell), expected_unbounded);
+            if !expected_unbounded {
+                saw_interior_cell = true;
+                assert!(
+                    v.neighboring_cells(cell).count() >= 3,
+                    "an interior Voronoi cell in generic position has at least 3 neighbors"
+                );
+            }
+        }
+        assert!(
+            saw_interior_cell,
+            "a 60-point generic-position cloud must have at least one interior site"
+        );
     }
 
     // -- Canonical-topology normalization tests (ADR-007) --

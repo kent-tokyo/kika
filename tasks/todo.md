@@ -20,14 +20,23 @@
       cells, distinct `Bounded` vertices, `Unbounded` edges dual to an
       actual hull edge, no duplicate face within one vertex's group. Of
       ADR-007's requested invariant list, "same-component edges never
-      exposed" was already covered by Phase 7A's checks, and "one cell
-      per site"/"neighboring is symmetric" were skipped as structurally
-      guaranteed by this module's data shape (no separate cell table;
+      exposed" was already covered by Phase 7A's checks; "one cell per
+      site" needed no check (`VoronoiCellId` is a pass-through wrapper,
+      no separate table to desync); "neighboring is symmetric" is
+      asserted by a test instead of a validator check, since
       `neighboring_cells` reads `edges`' unordered pairs symmetrically by
-      construction) — not something a runtime check could meaningfully
-      fail to catch. A negative test deliberately corrupts a valid
-      `Voronoi2`'s private fields to confirm each of the 4 new checks
-      actually fires, not just that valid input passes.
+      construction — the data shape admits no asymmetric entry to inject,
+      unlike the 4 checks that were added. A negative test deliberately
+      corrupts a valid `Voronoi2`'s private fields to confirm each of the
+      4 new checks actually fires, not just that valid input passes.
+- [x] `cell_is_unbounded`/`neighboring_cells` initially had no test
+      distinguishing an interior cell from a hull cell — every fixture in
+      the file used a fully-convex point set, so a stub always returning
+      `true` would have passed. Fixed by extending the existing 60-point
+      generic-position test: `cell_is_unbounded` is checked against an
+      independent recomputation from `delaunay.boundary_edges()` for
+      every cell, and an interior cell's `neighboring_cells` count is
+      asserted `>= 3`.
 - [x] rustdoc examples on `voronoi2()` and `neighboring_cells()`; query
       API round-trip test against internal struct data; symmetry test on
       the mixed cocircular-cluster-plus-outlier fixture. Verified at
