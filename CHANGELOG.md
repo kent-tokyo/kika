@@ -5,6 +5,30 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `Voronoi2` / `voronoi2`: a topology-only Voronoi diagram, the dual of
+  an existing `Triangulation2` — no coordinates (circumcenters),
+  clipping, or nearest-neighbor query, deliberately deferred. Cocircular
+  Delaunay faces (which `delaunay2`'s own documented tie-break can split
+  across more than one triangle) are merged via union-find keyed on
+  `incircle(...) == Sign::Zero`, so an arbitrary Delaunay tie-break can't
+  leak into the output as spurious extra vertices or edges; every dense
+  id (`VoronoiVertexId`/`VoronoiEdgeId`) is assigned by sorting on a
+  canonical site-identity key rather than union-find root or scan order,
+  so two differently-triangulated-but-topologically-equal inputs produce
+  identical, not merely isomorphic, output.
+
+  Query API: `cells()`/`vertices()`/`edges()`, `cell_site()`,
+  `neighboring_cells()`, `cell_is_unbounded()`, `edge_cells()`,
+  `edge_kind()`, `dual_delaunay_edge()`, `vertex_delaunay_faces()`, and
+  `cell_edges()` — an ordered counterclockwise walk of a cell's boundary
+  edges (a closed cycle for a bounded/interior-site cell, a linear
+  sequence between the two rays for an unbounded/hull-site cell), built
+  entirely from `Triangulation2`'s existing face adjacency, no new data
+  model. See `docs/adr/ADR-007-voronoi-diagram-topology.md` for the full
+  design and correctness argument.
+
 ## [0.4.0] - 2026-08-18
 
 Polygon triangulation with holes, plus a wasm32 execution-testing gap

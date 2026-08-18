@@ -1,5 +1,58 @@
 # Todo
 
+## Done (ADR-007 Phase 7C: Voronoi cell_edges + 0.5.0 readiness check)
+
+- [x] Investigated before implementing (per instruction): does
+      `cell_edges()` reduce cleanly to existing `Triangulation2` face
+      adjacency, no new half-edge structure? Worked out and hand-verified
+      (concrete square example, traced before writing code) that
+      rotating a site's incident faces in a fixed direction visits them
+      in the same order the geometric cell boundary would; a step whose
+      Delaunay edge was excluded (same cocircular group) simply has no
+      entry in `edges`, which is the skip signal — no special-casing.
+      Proved cocircular merging can't split one cell's walk into two
+      disconnected runs of the same `VoronoiVertexId` (shared-vertex +
+      both circles' defining triples force one common circle, always
+      caught by `voronoi2`'s exhaustive adjacent-pair testing).
+      Conclusion: natural, no half-edge structure needed — implemented.
+      Commit `45a91d1`.
+- [x] First draft's cycle-detection loop reused its own ending position
+      as the forward walk's start; wrong for the interior/cyclic case
+      (needs the *original* starting face) and would have silently
+      dropped one edge per interior cell. Caught by hand-tracing before
+      any code was written, not by a test.
+- [x] `VoronoiTopologyError::EdgeNotInExactlyTwoCellBoundaries` — every
+      edge reachable from exactly 2 cells' walks. Documented explicitly
+      as a coverage check (catches a dropped step), not an ordering
+      check, after review flagged that the lookup it's built on is
+      symmetric by construction and so cannot detect wrong-order or
+      duplicate emissions on its own.
+- [x] Tests: cocircular square/5-/8-point n-gons (2 rays per cell, no
+      interior edge survives); a hand-verified exact edge order on a
+      partially-cocircular fixture; a near-cocircular-but-not quad
+      (confirms the exact predicate doesn't merge a close miss); a
+      60-point fixed-seed cloud checking `edge_cells()` consistency and
+      — the discriminating check — that consecutive edges in each cell's
+      walk share exactly one Voronoi vertex, cyclically for interior
+      cells and linearly (no wraparound) for hull cells. The hull-cell
+      half of that check was originally missing (first/last-ray-only
+      assertion would pass a walk with the middle reversed) — added
+      after review.
+- [x] 0.5.0 readiness check: `ROADMAP.md` (internal)'s "design approved,
+      implementation not started" 0.5.0 section was stale, rewritten to
+      reflect Phase 7A/7B/7C completion (confirms the section's own
+      original scoping call — "0.5.0 does not need to expose an actual
+      `Point2` coordinate" — held exactly, `cell_edges()` included, no
+      coordinate construction anywhere). `docs/architecture.md`'s module
+      tree and its 2 stale "implementation not started" mentions fixed.
+      `CHANGELOG.md`'s `[Unreleased]` section populated with the full
+      feature summary (no version header/date -- that's a release-time
+      action, not done here).
+- [x] **Not done, deliberately**: circumcenter coordinates, clipping,
+      nearest-neighbor, performance optimization, new dependencies,
+      competitive benchmarks, version bump, publish, tag, release. Not
+      pushed — local commit only, per instruction.
+
 ## Done (ADR-007 Phase 7B: Voronoi public query API)
 
 - [x] `Voronoi2`/`voronoi2()`/`VoronoiCellId`/`VoronoiVertexId`/

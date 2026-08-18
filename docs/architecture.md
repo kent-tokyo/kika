@@ -63,15 +63,25 @@ src/
     ├── cdt.rs                        # constrained_delaunay2/ConstrainedTriangulation2/
     │                                 # CdtError (Phase 6C) -- segment recovery via
     │                                 # pure edge-flipping, no new construction
-    └── polygon.rs                    # triangulate_polygon (Phase 6D) and
-                                       # triangulate_polygon_with_holes (0.4.0) /
-                                       # PolygonTriangulationError
+    ├── polygon.rs                    # triangulate_polygon (Phase 6D) and
+    │                                  # triangulate_polygon_with_holes (0.4.0) /
+    │                                  # PolygonTriangulationError
+    └── voronoi.rs                    # Voronoi2/voronoi2 (0.5.0, ADR-007) --
+                                       # topology-only dual of Triangulation2:
+                                       # cocircular face grouping via union-find,
+                                       # canonical dense id assignment, the
+                                       # cells/vertices/edges query API, and the
+                                       # ordered cell_edges() boundary walk. No
+                                       # coordinates (circumcenter), clipping, or
+                                       # nearest-neighbor yet -- deliberately
+                                       # deferred, see the ADR
 ```
 
-`topology/` (a Voronoi/arrangement-style module) remains an unfilled
-placeholder — `docs/adr/ADR-007-voronoi-diagram-topology.md` designs a
-0.5.0 `triangulation::voronoi` module for the next such addition, not yet
-implemented (design-approved, implementation not started).
+`docs/adr/ADR-007-voronoi-diagram-topology.md` designed
+`triangulation::voronoi` (above); implementation shipped in full across
+3 phases (7A: data model + constructor + validator; 7B: public query
+API; 7C: `cell_edges()`), each phase's own correctness argument recorded
+in the module's doc comments rather than repeated here.
 
 ## Error enums are `#[non_exhaustive]` (0.3.0)
 
@@ -195,8 +205,9 @@ geometric/structural classifications like `Sign`/`Orientation`/
     (exact point-in-polygon), for hole-containment validation.
 
 `docs/adr/ADR-007-voronoi-diagram-topology.md` designs a further layer —
-Voronoi topology as `Triangulation2`'s dual — for 0.5.0; approved,
-implementation not started (see `ROADMAP.md`, internal).
+Voronoi topology as `Triangulation2`'s dual — for 0.5.0; implemented in
+full as `triangulation::voronoi` (see the module tree above), release
+not yet done (see `ROADMAP.md`, internal).
 
 ## Data flow for a predicate call
 
