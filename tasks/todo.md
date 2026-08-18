@@ -1,5 +1,29 @@
 # Todo
 
+## Done (ADR-007: Voronoi diagram topology design — design only, not implemented)
+
+- [x] `docs/adr/ADR-007-voronoi-diagram-topology.md` — full design for
+      0.5.0's Voronoi topology API, reviewed and approved (two rounds:
+      initial design, then three specific revisions — owned `VoronoiEdge`
+      storing `cells` directly rather than only re-derivable through
+      `source_edge`; canonical (site-identity-keyed, not union-find-root-
+      or scan-order-keyed) dense id assignment for `VoronoiVertexId`/
+      `VoronoiEdgeId`; `VoronoiEdgeKind` marked `#[non_exhaustive]` up
+      front for a future 1-2-site `Line` variant).
+- [x] Central problem solved: cocircular Delaunay faces (which
+      `delaunay2`'s own documented tie-break can split across more than
+      one triangle) are grouped via union-find keyed on
+      `incircle(...) == Sign::Zero`, with a from-scratch transitivity
+      proof (three points determine a circle) for why pairwise-adjacent
+      testing correctly captures arbitrarily large cocircular clusters,
+      not just isolated 4-point quads.
+- [x] **Not done, deliberately**: no `src/` code, no `Cargo.toml` change,
+      no version bump, no dependency, no performance work. Starting
+      0.5.0 implementation itself remains its own separate decision, not
+      an automatic follow-on from the design being approved — see
+      `ROADMAP.md` (internal)'s own "stop after each release/round"
+      rule, still in effect.
+
 ## Done (fuzz: predicate_input_bytes target)
 
 - [x] Added `fuzz/fuzz_targets/predicate_input_bytes.rs` — the last
