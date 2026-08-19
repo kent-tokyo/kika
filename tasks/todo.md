@@ -1,5 +1,50 @@
 # Todo
 
+## Done (ADR-008 0.6.0: Triangulation2::locate, Round 1 + 2)
+
+- [x] **Round 1** (`2d994eb`, `2364f6e`, `e1bb9ba`, pushed, CI green):
+      `docs/adr/ADR-008-point-location.md` written before implementation
+      (matches the ADR-006/007 convention). `PointLocation::{Vertex,
+      Edge, Face, Outside}`, closed (not `#[non_exhaustive]`) since its
+      4 variants are the closure of `Triangulation2`'s own already-closed
+      `VertexId`/`EdgeId`/`FaceId` vocabulary plus the necessary miss
+      case. `locate()`: `O(F)` scan over `faces().zip(triangles())`
+      (index-parallel by construction, no coordinate lookup table),
+      `Segment2::relation_to` over a face's 3 actual edges to
+      disambiguate an `OnBoundary` hit into `Vertex`/`Edge` — proof this
+      always finds a match for a non-degenerate CCW face is in the ADR.
+      Never panics (the 2 fallthrough spots that might look like
+      `unreachable!()` candidates both `continue`, since
+      `validate_topology()` is a test-only diagnostic, never a
+      construction-time gate). A plan-agent review before implementation
+      caught 2 real corrections (drop the coordinate table in favor of
+      zipping `faces()`/`triangles()`; never panic) baked into the
+      design before any code was written.
+- [x] **Round 2** (`98e3ecb`, `1216571`, pushed, CI green): explicit
+      `O(F)` complexity statement in the doc comment; a
+      shared-interior-edge order-independence test (2
+      differently-face-ordered `assemble_triangulation` instances,
+      same edge result either way, compared by endpoint coordinates
+      since raw `EdgeId` is independently numbered per instance); an
+      outer-vs-hole classification test (caught a real test-fixture
+      mistake before landing: the first candidate point (7,7) sits
+      exactly on a genuine diagonal edge this triangulation draws from
+      (10,10) to a hole corner, verified via a throwaway debug example
+      before picking (7,2)); and an independent BigRational oracle
+      (`tests/differential/locate.rs`, duplicating
+      `point_in_triangle.rs`'s oracle machinery) checking `locate`'s
+      actual aggregation/dispatch logic and its full postcondition
+      (Vertex/Edge/Face/Outside) directly against the oracle, not this
+      crate's own `Triangle2::relation_to`/`Segment2::relation_to`
+      (which would only re-test internal consistency).
+- [x] 333 tests total (was 320 pre-0.6.0): 212 unit (+10), 64
+      differential (+2), 35 adversarial, 7 regression, 15 doctests (+1).
+- [x] **Not done, deliberately**: walking locator, spatial index,
+      nearest-neighbor query, `ConstrainedTriangulation2`-specific
+      forwarding method (use `cdt.triangulation().locate(p)`), new
+      dependencies, performance optimization/measurement beyond what's
+      already stated as out of scope in the ADR.
+
 ## Done (post-0.5.0: voronoi_topology_validator fuzz target)
 
 - [x] `fuzz/fuzz_targets/voronoi_topology_validator.rs` — the same

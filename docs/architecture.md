@@ -66,13 +66,21 @@ src/
     ├── polygon.rs                    # triangulate_polygon (Phase 6D) and
     │                                  # triangulate_polygon_with_holes (0.4.0) /
     │                                  # PolygonTriangulationError
-    └── voronoi.rs                    # Voronoi2/voronoi2 (0.5.0, ADR-007) --
-                                       # topology-only dual of Triangulation2:
-                                       # cocircular face grouping via union-find,
-                                       # canonical dense id assignment, the
-                                       # cells/vertices/edges query API, and the
-                                       # ordered cell_edges() boundary walk. No
-                                       # coordinates (circumcenter), clipping, or
+    ├── voronoi.rs                    # Voronoi2/voronoi2 (0.5.0, ADR-007) --
+    │                                  # topology-only dual of Triangulation2:
+    │                                  # cocircular face grouping via union-find,
+    │                                  # canonical dense id assignment, the
+    │                                  # cells/vertices/edges query API, and the
+    │                                  # ordered cell_edges() boundary walk. No
+    │                                  # coordinates (circumcenter), clipping, or
+    │                                  # nearest-neighbor yet -- deliberately
+    │                                  # deferred, see the ADR
+    └── locate.rs                     # Triangulation2::locate/PointLocation
+                                       # (0.6.0, ADR-008) -- O(F) linear scan over
+                                       # faces()/triangles() (index-parallel by
+                                       # construction), Segment2::relation_to to
+                                       # disambiguate an OnBoundary hit into
+                                       # Vertex/Edge. No spatial index or
                                        # nearest-neighbor yet -- deliberately
                                        # deferred, see the ADR
 ```
@@ -82,6 +90,13 @@ src/
 3 phases (7A: data model + constructor + validator; 7B: public query
 API; 7C: `cell_edges()`), each phase's own correctness argument recorded
 in the module's doc comments rather than repeated here.
+
+`docs/adr/ADR-008-point-location.md` designed `triangulation::locate`
+(above); implementation shipped in 2 rounds (Round 1: the algorithm and
+its correctness argument; Round 2: a shared-interior-edge
+order-independence test, an outer-vs-hole classification test, and an
+independent BigRational oracle covering `locate`'s actual aggregation
+logic rather than re-testing its own primitives).
 
 ## Error enums are `#[non_exhaustive]` (0.3.0)
 

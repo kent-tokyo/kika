@@ -1,19 +1,20 @@
 # Compatibility
 
-Status: Phase 1-5 complete; Phase 6A-6D complete. As of the 0.5.0
-candidate (0.2.0, 0.3.0, and 0.4.0 already shipped; 0.5.0 adds
-topology-only Voronoi diagram support — see `CHANGELOG.md`), Kika is a
-robust 2D kernel with exact predicates, 2D convex hull, Delaunay
-triangulation, constrained Delaunay triangulation (narrow scope),
-simple-polygon triangulation with or without holes, and Voronoi diagram
-topology (no coordinates) — see `README.md`'s Maturity table for exactly
-what each covers. Voronoi vertex coordinates (circumcenters), clipping,
-polygon Boolean, and later roadmap work not started, deliberately
-deferred.
+Status: Phase 1-5 complete; Phase 6A-6D complete. As of the 0.6.0
+candidate (0.2.0 through 0.5.0 already shipped; 0.6.0 adds
+`Triangulation2::locate`/`PointLocation` point location — see
+`CHANGELOG.md`), Kika is a robust 2D kernel with exact predicates, 2D
+convex hull, Delaunay triangulation, constrained Delaunay triangulation
+(narrow scope), simple-polygon triangulation with or without holes,
+Voronoi diagram topology (no coordinates), and point location — see
+`README.md`'s Maturity table for exactly what each covers. Voronoi
+vertex coordinates (circumcenters), clipping, a spatial index/walking
+locator, nearest-neighbor query, polygon Boolean, and later roadmap work
+not started, deliberately deferred.
 
 ## Platforms
 
-* `aarch64-apple-darwin` — full test suite (302 tests across unit,
+* `aarch64-apple-darwin` — full test suite (333 tests across unit,
   differential, adversarial, regression, doctests — plus 10 more under
   `wasm-pack test`, see below) run locally on this target during
   development, not just built.
@@ -30,8 +31,10 @@ deferred.
   green, including the new `wasm-test-node` job's first real CI run), and
   again across the 3 pushes making up 0.5.0's Voronoi topology work
   (Phase 7A `b9702c1`..`7050f9f`, Phase 7B `18c8d6e`..`92a4d4b`, Phase 7C
-  `45a91d1`..`159cf56`, all 10 jobs green on each push) — CI-confirmed,
-  not just locally verified.
+  `45a91d1`..`159cf56`, all 10 jobs green on each push), and again across
+  the 2 pushes making up 0.6.0's point-location work (Round 1
+  `2d994eb`..`e1bb9ba`, Round 2 `98e3ecb`..`1216571`, all 10 jobs green
+  on each push) — CI-confirmed, not just locally verified.
 * `wasm32-unknown-unknown` — library **builds** successfully, verified
   both locally and in CI (`cargo build --target wasm32-unknown-unknown
   --lib`, the `wasm` job). As of this session, also **executed**, not
@@ -78,10 +81,15 @@ wildcard arm — see `CHANGELOG.md`'s 0.3.0 entry for why this didn't
 already hold in 0.2.0. Classification enums that are not `Result` errors
 (`Sign`, `Orientation`, `PointSegmentRelation`, `PointTriangleRelation`,
 `SegmentIntersectionKind`, `SegmentIntersection2`, `PolygonBasicValidity`,
-`HullBoundaryPoints`) remain exhaustive; their variant sets are complete
-by construction.
+`HullBoundaryPoints`, `PointLocation`) remain exhaustive; their variant
+sets are complete by construction. `PointLocation` (0.6.0) is closed for
+a specific, stated reason (ADR-008), not by default: its 4 variants are
+exactly the closure of `Triangulation2`'s own already-closed
+`VertexId`/`EdgeId`/`FaceId` vocabulary plus the necessary miss case — a
+2-simplicial complex has only 0-, 1-, and 2-cells, so no further variant
+is possible.
 
-Public API surface as of 0.5.0:
+Public API surface as of 0.6.0:
 `Point2`, `Point3`, `Vector2`, `Vector3`, `Segment2`, `Triangle2`,
 `Triangle3`, `Aabb2`, `Aabb3`, `Sign`, `Orientation`, `KikaError`,
 `orient2d`, `orient3d`, `incircle`, `insphere`,
@@ -95,4 +103,6 @@ Public API surface as of 0.5.0:
 `triangulate_polygon` (Phase 6D), `PointPolygonRelation`,
 `triangulate_polygon_with_holes` (0.4.0), `Voronoi2`, `voronoi2`,
 `VoronoiCellId`, `VoronoiVertexId`, `VoronoiEdgeId`, `VoronoiEdgeKind`,
-`VoronoiEdge` (0.5.0, ADR-007) — topology only, no coordinate type added.
+`VoronoiEdge` (0.5.0, ADR-007) — topology only, no coordinate type added
+— and `PointLocation` (0.6.0, ADR-008) — `Triangulation2::locate` itself
+is a method, not a separate re-export.
