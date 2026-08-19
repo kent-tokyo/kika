@@ -35,8 +35,11 @@ impl Triangulation2 {
     /// Locates `point` against this triangulation's faces, edges, and
     /// vertices.
     ///
-    /// **O(number of faces)** -- a linear scan, not a spatial index or
-    /// walking locator. Performance is not part of this method's
+    /// **O(F)**, where `F` is the number of faces -- a linear scan, not
+    /// a spatial index or walking locator. (Precisely O(F + E) for the
+    /// face scan plus the at-most-once edge lookup on an `OnBoundary`
+    /// hit, but a planar triangulation always has `E = O(F)`, so this
+    /// reduces to `O(F)`.) Performance is not part of this method's
     /// contract; this is stated explicitly so "there's a `locate` API"
     /// is never mistaken for "there's a fast point-location index" --
     /// a walking locator can replace the scan later, without this
