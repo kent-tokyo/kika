@@ -8,7 +8,7 @@
 
 Kika（「幾何」）是一个致力于健壮 2D/3D 计算几何的 Rust 库：具备自适应/精确回退运算的精确谓词，以及在后续阶段基于此基础构建的三角剖分、凸包与多边形算法。
 
-状态：**pre-alpha（Phase 1-5 及 Phase 6A-6D 已完成）。** 截至 0.5.0，Kika 是一个健壮的 2D 内核，具备精确谓词、2D 凸包、Delaunay 三角剖分、约束 Delaunay 三角剖分（范围有限）、简单多边形三角剖分（含孔洞与不含孔洞）以及 Voronoi 图拓扑（尚无顶点坐标）——具体覆盖了什么、没有覆盖什么，请参见[今天已实现的功能](#implemented-today)和下面的[成熟度](#maturity)表。目前尚无稳定性保证。尚不存在的功能请参见[路线图](#roadmap)——**Kika 并不是一个已完成的 CGAL 替代品**，而是未来可能构建出这样一个替代品的健壮内核。
+状态：**pre-alpha（Phase 1-5 及 Phase 6A-6D 已完成）。** 截至 0.6.0，Kika 是一个健壮的 2D 内核，具备精确谓词、2D 凸包、Delaunay 三角剖分、约束 Delaunay 三角剖分（范围有限）、简单多边形三角剖分（含孔洞与不含孔洞）、Voronoi 图拓扑（尚无顶点坐标）以及点定位（point location）——具体覆盖了什么、没有覆盖什么，请参见[今天已实现的功能](#implemented-today)和下面的[成熟度](#maturity)表。目前尚无稳定性保证。尚不存在的功能请参见[路线图](#roadmap)——**Kika 并不是一个已完成的 CGAL 替代品**，而是未来可能构建出这样一个替代品的健壮内核。
 
 ## <a id="why-not-just-use-cgal"></a>为什么不直接使用 CGAL？
 
@@ -50,8 +50,9 @@ Kika 的赌注，按顺序：
 * `triangulate_polygon` —— 简单多边形三角剖分（Phase 6D），构建在 Phase 6C 的 CDT 之上：将多边形的每条边都作为约束，然后（对于非凸输入）通过从一个内部种子面出发的纯拓扑洪水填充（flood fill），丢弃多边形外部的凹陷区域面——绝不使用诸如质心之类的构造坐标。无 Steiner 点（每个输出顶点都是多边形自身的顶点之一），自相交的输入会被作为带类型的 `PolygonTriangulationError` 拒绝，同时接受 CCW 和 CW 方向的输入，且结果具有确定性。完整的范围说明表见 [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)，其中还包含了使用 `Triangulation2::validate_topology()` 检查结果时需要注意的事项（该函数的欧拉示性数检查假设三角剖分覆盖了整个凸包，而非凸多边形的三角剖分则有意不满足这一点）。
 * `triangulate_polygon_with_holes` —— 带孔多边形三角剖分，是对 `triangulate_polygon` 自身算法的推广而非另起炉灶：孔的边界只是同一个洪水填充算法会在其处停止的更多约束边而已。一个孔嵌套在另一个孔内部的情形超出范围（作为带类型错误处理，而非部分支持）。其他被拒绝的输入（孔位于边界之外、与边界接触或相交、与其他孔接触或相交）同样作为带类型的 `PolygonTriangulationError` 处理，绝不会 panic。`Polygon2::relation_to`/`PointPolygonRelation`（与此同时新增的精确点与多边形谓词）支撑着孔包含关系的检查。
 * `Voronoi2` / `voronoi2` —— 仅拓扑的 Voronoi 图（0.5.0），是已有 `Triangulation2` 的对偶：尚无顶点坐标（外心）、裁剪或最近邻查询，有意推迟。上文提到的 Delaunay 自身的共圆平局规则可能把一个共圆的点簇拆分到多个三角形中；`voronoi2` 通过以 `incircle(...) == Sign::Zero` 为键的并查集（union-find）合并受影响的面，使得这个任意的选择不会作为多余的 Voronoi 顶点或边泄漏出来——通过将同一个共圆点集输入到多个不同的三角剖分中，并验证得到的不仅是同构、而是完全相同的输出，对此进行了验证。查询 API：`cells`/`vertices`/`edges`、`cell_site`、`neighboring_cells`、`cell_is_unbounded`、`edge_cells`、`edge_kind`、`dual_delaunay_edge`、`vertex_delaunay_faces`，以及 `cell_edges`——按逆时针顺序遍历一个 cell 边界的有序游走（对于 bounded/内部站点的 cell 是一个闭合循环，对于 unbounded/hull 站点的 cell 则是两条射线之间的线性序列），完全基于 `Triangulation2` 已有的面邻接结构构建，没有引入新的数据模型。参见 [`docs/adr/ADR-007-voronoi-diagram-topology.md`](docs/adr/ADR-007-voronoi-diagram-topology.md)。
+* `Triangulation2::locate` / `PointLocation` —— 点定位（0.6.0）：`PointLocation::{Vertex(VertexId), Edge(EdgeId), Face(FaceId), Outside}`，一个封闭的枚举（不是 `#[non_exhaustive]`——这 4 个变体恰好是 `Triangulation2` 自身已经封闭的 id 词汇表的闭包，再加上必要的“未命中”情形）。`Outside` 的含义是“不被任何面覆盖”，而不是“在凸包之外”：对于 `triangulate_polygon_with_holes` 的结果，位于孔洞内部的点同样是 `Outside`，因为没有任何面覆盖它。复杂度为 `O(F)`——对每个面进行线性扫描，而不是空间索引；性能有意不属于本次发布的公开契约，因此以后可以在不改变函数签名的情况下换成更快的定位算法。绝不 panic，包括对空的三角剖分。已经针对一个独立的 BigRational oracle 进行了验证，该 oracle 直接检验跨越所有面的聚合/分派逻辑本身，而不仅仅是本 crate 自己的 `Triangle2::relation_to`/`Segment2::relation_to`。参见 [`docs/adr/ADR-008-point-location.md`](docs/adr/ADR-008-point-location.md)。
 
-以上四个谓词共同完成了 v0.1 的健壮谓词范围；上述的基本图元、相交判定、多边形与凸包、Delaunay 三角剖分完成了 Phase 2 到 Phase 4。`segment_intersection` 的 `Proper` 相交点构造（见下文）完成了 Phase 5，而上述的邻接结构、约束 Delaunay 三角剖分与简单多边形三角剖分完成了 Phase 6A-6D。Voronoi 图的*拓扑*已经实现（见上文，0.5.0）；此后的内容——多边形布尔运算，以及尤其是 Voronoi 顶点的*坐标*（外心）——留待以后实现——见[路线图](#roadmap)。
+以上四个谓词共同完成了 v0.1 的健壮谓词范围；上述的基本图元、相交判定、多边形与凸包、Delaunay 三角剖分完成了 Phase 2 到 Phase 4。`segment_intersection` 的 `Proper` 相交点构造（见下文）完成了 Phase 5，而上述的邻接结构、约束 Delaunay 三角剖分与简单多边形三角剖分完成了 Phase 6A-6D。Voronoi 图的*拓扑*（0.5.0）与点定位（0.6.0）均已实现（见上文）；此后的内容——多边形布尔运算、空间索引/walking locator、最近邻查询，以及尤其是 Voronoi 顶点的*坐标*（外心）——留待以后实现——见[路线图](#roadmap)。
 
 * `predicates::line_intersection`（在 `segment_intersection` 的 `Proper` 情形中被内部调用）—— 本 crate 中首个精确/经过认证的**构造**（依据 ADR-004）。返回最接近真实线—线交点坐标、经过正确舍入（在恰好为平局时采用就近偶数舍入）的 `f64`，而不是一个近似值——这将 IEEE-754 对单次算术运算所作的保证，扩展到了整个几何构造过程。`Point2` 仍然是一个普通的 `f64` 数对；没有引入新的公开类型，也没有引入新的依赖。已针对一个独立的 `BigRational`「这是不是正确舍入后最接近的 `f64`」预言机进行验证，覆盖了不同的量级尺度、混合量级输入，以及一次经验性的下界扫描——见 [`docs/numerical-model.md`](docs/numerical-model.md)。
 
@@ -139,6 +140,32 @@ for edge in voronoi.edges() {
 }
 ```
 
+点定位——`O(F)`，没有空间索引（同样是一个 doctest，作为[`locate` 自身文档中的示例](src/triangulation/locate.rs)存在）：
+
+```rust
+use kika::{Point2, PointLocation, delaunay2};
+
+let pts = [
+    Point2::new(0.0, 0.0).unwrap(),
+    Point2::new(4.0, 0.0).unwrap(),
+    Point2::new(0.0, 4.0).unwrap(),
+];
+let t = delaunay2(&pts);
+
+// Every input point locates to its own vertex.
+let (v0, _) = t.vertices().next().unwrap();
+assert_eq!(t.locate(pts[0]), PointLocation::Vertex(v0));
+
+// A point strictly inside the triangle locates to its one face.
+assert!(matches!(
+    t.locate(Point2::new(1.0, 1.0).unwrap()),
+    PointLocation::Face(_)
+));
+
+// A point outside the hull.
+assert_eq!(t.locate(Point2::new(10.0, 10.0).unwrap()), PointLocation::Outside);
+```
+
 更多可以通过 `cargo run --example <name>` 运行的示例，位于 [`examples/`](examples/) 目录下：
 
 * [`orient2d`](examples/orient2d.rs) —— 基本的转向判定谓词
@@ -150,6 +177,7 @@ for edge in voronoi.edges() {
 * [`polygon_triangulation`](examples/polygon_triangulation.rs) —— 非凸多边形，附带三角形数量/CCW/面积的检查
 * [`polygon_triangulation_with_holes`](examples/polygon_triangulation_with_holes.rs) —— 挖去两个独立孔洞的边界
 * [`voronoi`](examples/voronoi.rs) —— 一个共圆的正方形加一个偏离中心的内部点，bounded 与 unbounded 的 cell
+* [`locate`](examples/locate.rs) —— vertex/edge/face/outside 的分类，包括孔洞的内部与边界
 
 ## WASM
 
@@ -175,6 +203,7 @@ Pre-1.0 阶段，没有 semver 保证。某些计算几何库（包括 CGAL）�
 | 约束 Delaunay | 已实现 —— 范围有限：仅支持已有顶点之间的不相交约束，无 Steiner 点（Phase 6C） |
 | 简单多边形三角剖分 | 已实现 —— 无 Steiner 点，自相交输入会被拒绝（Phase 6D）。支持孔洞（0.4.0，`triangulate_polygon_with_holes`）—— 嵌套孔洞超出范围，作为带类型错误处理 |
 | Voronoi 图 | 已实现 —— 仅拓扑（0.5.0）：cells/vertices/edges，有序的 `cell_edges()` 边界游走；尚无顶点坐标（外心）、裁剪或最近邻查询 |
+| 点定位 | 已实现 —— `Triangulation2::locate`（0.6.0），`O(F)` 线性扫描，已针对独立的 BigRational oracle 验证；尚无空间索引/walking locator 或最近邻查询 |
 | 多边形布尔运算 | 未实现 —— 精确性模型仍未确定，见 ADR-004 |
 | 3D 网格运算 | 未实现 |
 
@@ -189,4 +218,4 @@ Pre-1.0 阶段，没有 semver 保证。某些计算几何库（包括 CGAL）�
 
 ## <a id="roadmap"></a>路线图
 
-Phase 1（健壮谓词）、Phase 2（2D 基本图元与相交判定）、Phase 3（2D 凸包）、Phase 4（2D Delaunay 三角剖分）、Phase 5（经认证/精确的构造 —— 精确的 `Proper` 线段交点）、Phase 6A-6D（三角剖分邻接结构、范围有限的约束 Delaunay、范围有限的简单多边形三角剖分），以及 Voronoi 图的*拓扑*（0.5.0）均已完成。尚未实现的内容：Voronoi 顶点的*坐标*（外心）、裁剪、最近邻查询；多边形/网格布尔运算；顶点删除；Delaunay 细化（refinement）；网格修复；曲面重建；点云处理。分阶段的待办事项列表见 [`tasks/todo.md`](tasks/todo.md)，在 `crates.io`/GitHub 发布前已验证的内容见 [`docs/release-checklist.md`](docs/release-checklist.md)（0.2.0 到 0.4.0 均已发布，0.5.0 正在准备中——见 `CHANGELOG.md`）。
+Phase 1（健壮谓词）、Phase 2（2D 基本图元与相交判定）、Phase 3（2D 凸包）、Phase 4（2D Delaunay 三角剖分）、Phase 5（经认证/精确的构造 —— 精确的 `Proper` 线段交点）、Phase 6A-6D（三角剖分邻接结构、范围有限的约束 Delaunay、范围有限的简单多边形三角剖分）、Voronoi 图的*拓扑*（0.5.0），以及点定位（0.6.0）均已完成。尚未实现的内容：Voronoi 顶点的*坐标*（外心）、裁剪、最近邻查询；`locate` 的空间索引/walking locator；多边形/网格布尔运算；顶点删除；Delaunay 细化（refinement）；网格修复；曲面重建；点云处理。分阶段的待办事项列表见 [`tasks/todo.md`](tasks/todo.md)，在 `crates.io`/GitHub 发布前已验证的内容见 [`docs/release-checklist.md`](docs/release-checklist.md)（0.2.0 到 0.5.0 均已发布，0.6.0 正在准备中——见 `CHANGELOG.md`）。
