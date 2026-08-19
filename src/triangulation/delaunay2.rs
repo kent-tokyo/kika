@@ -66,7 +66,11 @@ impl Triangulation2 {
     }
 
     /// The triangulation's triangles (coordinates only), in no particular
-    /// order.
+    /// (i.e. not spatially sorted) order -- but index-parallel with
+    /// [`Triangulation2::faces`]/[`FaceId`]: `triangles()[i]` is always
+    /// the same face as `FaceId` index `i`. [`Triangulation2::locate`]
+    /// relies on this as a stated contract, not an inferred
+    /// implementation detail.
     pub fn triangles(&self) -> &[Triangle2] {
         &self.triangles
     }

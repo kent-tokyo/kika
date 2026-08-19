@@ -30,8 +30,8 @@ pub use primitives::{
     Triangle3, Vector2, Vector3,
 };
 pub use triangulation::{
-    CdtError, ConstrainedTriangulation2, EdgeId, FaceId, PolygonTriangulationError, Triangulation2,
-    VertexId, Voronoi2, VoronoiCellId, VoronoiEdge, VoronoiEdgeId, VoronoiEdgeKind,
+    CdtError, ConstrainedTriangulation2, EdgeId, FaceId, PointLocation, PolygonTriangulationError,
+    Triangulation2, VertexId, Voronoi2, VoronoiCellId, VoronoiEdge, VoronoiEdgeId, VoronoiEdgeKind,
     VoronoiVertexId, constrained_delaunay2, delaunay2, triangulate_polygon,
     triangulate_polygon_with_holes, validate_cdt_topology, voronoi2,
 };
