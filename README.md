@@ -12,11 +12,11 @@ robust 2D/3D computational geometry: exact predicates with adaptive/exact
 fallback arithmetic, and — in later phases — triangulation, hull, and
 polygon algorithms built on top of that foundation.
 
-Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.5.0,
+Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.6.0,
 Kika is a robust 2D kernel with exact predicates, 2D convex hull, Delaunay
 triangulation, constrained Delaunay triangulation (narrow scope),
-simple-polygon triangulation with or without holes, and Voronoi diagram
-topology (no vertex coordinates yet) — see
+simple-polygon triangulation with or without holes, Voronoi diagram
+topology (no vertex coordinates yet), and point location — see
 [Implemented today](#implemented-today) and the
 [Maturity](#maturity) table below for exactly what that does and doesn't
 cover. No stability guarantees yet. See [Roadmap](#roadmap) for what
@@ -201,16 +201,32 @@ in pure Rust, that's what Phase 1 of Kika is.
   cell), built entirely from `Triangulation2`'s existing face adjacency,
   no new data model. See
   [`docs/adr/ADR-007-voronoi-diagram-topology.md`](docs/adr/ADR-007-voronoi-diagram-topology.md).
+* `Triangulation2::locate` / `PointLocation` — point location (0.6.0):
+  `PointLocation::{Vertex(VertexId), Edge(EdgeId), Face(FaceId), Outside}`,
+  a closed enum (not `#[non_exhaustive]` — its 4 variants are exactly the
+  closure of `Triangulation2`'s own already-closed id vocabulary plus the
+  necessary miss case). `Outside` means "not covered by any face," not
+  "outside the convex hull": a point inside a
+  `triangulate_polygon_with_holes` hole is also `Outside`. `O(F)` — a
+  linear scan over every face, not a spatial index; performance is
+  deliberately not part of this release's contract, so a faster locator
+  can replace the scan later without the signature changing. Never
+  panics, including on an empty triangulation. Verified against an
+  independent BigRational oracle covering the actual aggregation/dispatch
+  logic across faces, not just this crate's own
+  `Triangle2::relation_to`/`Segment2::relation_to`. See
+  [`docs/adr/ADR-008-point-location.md`](docs/adr/ADR-008-point-location.md).
 
 All four predicates complete v0.1's robust-predicate scope; the primitives,
 intersections, polygon, convex hull, and Delaunay triangulation above
 complete Phases 2 through 4. `segment_intersection`'s `Proper`-crossing
 point construction (below) completes Phase 5, and the adjacency structure,
 constrained Delaunay triangulation, and simple-polygon triangulation above
-complete Phase 6A-6D. Voronoi diagram *topology* is implemented (above,
-0.5.0); everything past this point — polygon Boolean, and Voronoi vertex
-*coordinates* (circumcenters) specifically — is later, see
-[Roadmap](#roadmap).
+complete Phase 6A-6D. Voronoi diagram *topology* (0.5.0) and point
+location (0.6.0) are both implemented (above); everything past this
+point — polygon Boolean, a spatial index/walking locator,
+nearest-neighbor query, and Voronoi vertex *coordinates* (circumcenters)
+specifically — is later, see [Roadmap](#roadmap).
 
 * `predicates::line_intersection` (used internally by
   `segment_intersection`'s `Proper` case) — the first exact/certified
@@ -333,6 +349,33 @@ for edge in voronoi.edges() {
 }
 ```
 
+Point location — `O(F)`, no spatial index (also doctested, as
+[`locate`'s own doc example](src/triangulation/locate.rs)):
+
+```rust
+use kika::{Point2, PointLocation, delaunay2};
+
+let pts = [
+    Point2::new(0.0, 0.0).unwrap(),
+    Point2::new(4.0, 0.0).unwrap(),
+    Point2::new(0.0, 4.0).unwrap(),
+];
+let t = delaunay2(&pts);
+
+// Every input point locates to its own vertex.
+let (v0, _) = t.vertices().next().unwrap();
+assert_eq!(t.locate(pts[0]), PointLocation::Vertex(v0));
+
+// A point strictly inside the triangle locates to its one face.
+assert!(matches!(
+    t.locate(Point2::new(1.0, 1.0).unwrap()),
+    PointLocation::Face(_)
+));
+
+// A point outside the hull.
+assert_eq!(t.locate(Point2::new(10.0, 10.0).unwrap()), PointLocation::Outside);
+```
+
 More, runnable via `cargo run --example <name>`, in [`examples/`](examples/):
 
 * [`orient2d`](examples/orient2d.rs) — the basic turn predicate
@@ -351,6 +394,8 @@ More, runnable via `cargo run --example <name>`, in [`examples/`](examples/):
   a boundary with two separate holes cut out
 * [`voronoi`](examples/voronoi.rs) — a cocircular square plus an
   off-center interior point, bounded vs. unbounded cells
+* [`locate`](examples/locate.rs) — vertex/edge/face/outside
+  classification, including a hole's interior vs. its boundary
 
 ## WASM
 
@@ -388,6 +433,7 @@ error enums (`KikaError`, `CdtError`, `PolygonTriangulationError`) are
 | Constrained Delaunay | Implemented — narrow scope: non-crossing constraints between existing vertices only, no Steiner points (Phase 6C) |
 | Simple polygon triangulation | Implemented — no Steiner points, self-intersecting input rejected (Phase 6D); holes supported (0.4.0, `triangulate_polygon_with_holes`) — nested holes out of scope, typed error |
 | Voronoi diagram | Implemented — topology only (0.5.0): cells/vertices/edges, ordered `cell_edges()` boundary walk; no vertex coordinates (circumcenters), clipping, or nearest-neighbor query yet |
+| Point location | Implemented — `Triangulation2::locate` (0.6.0), `O(F)` linear scan, verified against an independent BigRational oracle; no spatial index/walking locator or nearest-neighbor query yet |
 | Polygon Boolean | Not implemented — exactness model still open, see ADR-004 |
 | 3D mesh operations | Not implemented |
 
@@ -406,12 +452,13 @@ Phase 1 (robust predicates), Phase 2 (2D primitives and intersections),
 Phase 3 (2D convex hull), Phase 4 (2D Delaunay triangulation), Phase 5
 (certified/exact constructions — an exact `Proper` segment-intersection
 point), Phase 6A-6D (triangulation adjacency, narrow-scope constrained
-Delaunay, narrow-scope simple-polygon triangulation), and Voronoi diagram
-*topology* (0.5.0) are complete. Not yet implemented: Voronoi vertex
-*coordinates* (circumcenters), clipping, and nearest-neighbor query;
+Delaunay, narrow-scope simple-polygon triangulation), Voronoi diagram
+*topology* (0.5.0), and point location (0.6.0) are complete. Not yet
+implemented: Voronoi vertex *coordinates* (circumcenters), clipping, and
+nearest-neighbor query; a spatial index/walking locator for `locate`;
 polygon/mesh Boolean; vertex deletion; Delaunay refinement; mesh repair;
 surface reconstruction; point-cloud processing. See
 [`tasks/todo.md`](tasks/todo.md) for the phased backlog and
 [`docs/release-checklist.md`](docs/release-checklist.md) for what's
-verified before each `crates.io`/GitHub release (0.2.0 through 0.4.0 have
-all shipped, 0.5.0 in preparation; see `CHANGELOG.md`).
+verified before each `crates.io`/GitHub release (0.2.0 through 0.5.0 have
+all shipped, 0.6.0 in preparation; see `CHANGELOG.md`).
