@@ -35,10 +35,13 @@ impl Triangulation2 {
     /// Locates `point` against this triangulation's faces, edges, and
     /// vertices.
     ///
-    /// A linear scan over every face -- performance is not part of this
-    /// method's contract, and this signature does not need to change if
-    /// a faster (e.g. walking) locator replaces the scan later. The
-    /// result never depends on face iteration order: `Inside` regions
+    /// **O(number of faces)** -- a linear scan, not a spatial index or
+    /// walking locator. Performance is not part of this method's
+    /// contract; this is stated explicitly so "there's a `locate` API"
+    /// is never mistaken for "there's a fast point-location index" --
+    /// a walking locator can replace the scan later, without this
+    /// signature needing to change, once a real measured need for it
+    /// exists. The result never depends on face iteration order: `Inside` regions
     /// are pairwise disjoint by construction, a shared interior edge's
     /// two incident faces always resolve to the same `EdgeId` (edges are
     /// deduplicated by canonical vertex pair), and a shared vertex always
@@ -270,12 +273,71 @@ mod tests {
         let holes = [rect(1.0, 1.0, 3.0, 3.0)];
         let t = triangulate_polygon_with_holes(&outer, &holes).unwrap();
 
+        // Inside the outer ring and outside the hole: a real face.
+        // (Not (7,7)/(8,8): those happen to sit exactly on the diagonal
+        // edge this triangulation draws from (10,10) to hole-corner
+        // (1,1), along y=x -- verified directly before picking (7,2).)
+        assert!(matches!(t.locate(pt(7.0, 2.0)), PointLocation::Face(_)));
+
         // Inside the hole: not covered by any face, Outside -- even
         // though it's geometrically inside the outer ring.
         assert_eq!(t.locate(pt(2.0, 2.0)), PointLocation::Outside);
 
         // On the hole's own boundary: a real edge.
         assert!(matches!(t.locate(pt(2.0, 1.0)), PointLocation::Edge(_)));
+    }
+
+    #[test]
+    fn locate_shared_interior_edge_is_order_independent() {
+        // A cocircular-free square split by diagonal (0,2): the diagonal
+        // is a genuine interior edge shared by both faces. Build the
+        // same triangulation with the 2 faces in reversed relative
+        // order (a distinct FaceId assignment for the same topology) and
+        // confirm a point on that shared edge resolves to the exact
+        // same EdgeId either way -- locate()'s own scan order must not
+        // leak into the result.
+        let pts = vec![pt(0.0, 0.0), pt(2.0, 0.0), pt(2.0, 2.0), pt(0.0, 2.0)];
+        let forward = assemble_triangulation(
+            pts.clone(),
+            vec![
+                [VertexId(0), VertexId(1), VertexId(2)],
+                [VertexId(0), VertexId(2), VertexId(3)],
+            ],
+        );
+        let reversed = assemble_triangulation(
+            pts,
+            vec![
+                [VertexId(0), VertexId(2), VertexId(3)],
+                [VertexId(0), VertexId(1), VertexId(2)],
+            ],
+        );
+
+        let on_diagonal = pt(1.0, 1.0);
+        let forward_edge = forward.locate(on_diagonal);
+        let reversed_edge = reversed.locate(on_diagonal);
+        assert!(matches!(forward_edge, PointLocation::Edge(_)));
+
+        // Compare by endpoint coordinates, not raw EdgeId -- the two
+        // instances number their edges independently (arbitrary per
+        // construction, same convention as VertexId/EdgeId/FaceId
+        // generally), but must agree on *which* edge (by geometry).
+        let endpoints = |t: &Triangulation2, loc: PointLocation| -> (Point2, Point2) {
+            let PointLocation::Edge(e) = loc else {
+                panic!("expected Edge, got {loc:?}")
+            };
+            let (u, v) = t.edge_vertices(e);
+            let cu = t.vertices().find(|&(id, _)| id == u).unwrap().1;
+            let cv = t.vertices().find(|&(id, _)| id == v).unwrap().1;
+            if (cu.x(), cu.y()) <= (cv.x(), cv.y()) {
+                (cu, cv)
+            } else {
+                (cv, cu)
+            }
+        };
+        assert_eq!(
+            endpoints(&forward, forward_edge),
+            endpoints(&reversed, reversed_edge)
+        );
     }
 
     #[test]
