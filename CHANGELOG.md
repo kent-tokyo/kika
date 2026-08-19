@@ -5,7 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-08-19
+## [0.6.0] - 2026-08-20
 
 ### Added
 

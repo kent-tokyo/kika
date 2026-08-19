@@ -40,7 +40,7 @@ been verified as of the 0.6.0 version-bump commit.
 - [x] `cargo publish --dry-run` passes (kika v0.6.0, 899.1KiB / 259.7KiB
       compressed) — same clean worktree, no `--allow-dirty` needed
 - [x] `CHANGELOG.md` has a dated entry for the release
-      (`[0.6.0] - 2026-08-19`), not just `[Unreleased]`
+      (`[0.6.0] - 2026-08-20`), not just `[Unreleased]`
 - [x] Version bumped in `Cargo.toml` to `0.6.0`
 - [x] `README.md`'s (and `README_ja.md`/`README_zh.md`'s) Status line,
       "Implemented today" section, Minimal example, examples list,
