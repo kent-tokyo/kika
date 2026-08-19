@@ -12,6 +12,8 @@ mod incircle;
 mod insphere;
 #[path = "differential/line_intersection.rs"]
 mod line_intersection;
+#[path = "differential/locate.rs"]
+mod locate;
 #[path = "differential/orient2d.rs"]
 mod orient2d;
 #[path = "differential/orient3d.rs"]
