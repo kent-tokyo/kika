@@ -5,6 +5,36 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-19
+
+### Added
+
+- `Triangulation2::locate` / `PointLocation`: point location against a
+  triangulation's vertices, edges, and faces —
+  `PointLocation::{Vertex(VertexId), Edge(EdgeId), Face(FaceId), Outside}`,
+  a closed enum (not `#[non_exhaustive]`, since these 4 variants are
+  exactly the closure of `Triangulation2`'s own already-closed id
+  vocabulary plus the necessary miss case). `Outside` means "not covered
+  by any face," not "outside the convex hull": a point inside a
+  `triangulate_polygon_with_holes` hole is also `Outside`, since the
+  hole's interior has no face covering it.
+
+  `O(F)` — a linear scan over every face, not a spatial index or walking
+  locator; performance is deliberately not part of the public contract
+  for this release, so a faster locator can replace the scan later
+  without the signature changing. Never panics, including on an empty
+  triangulation (fewer than 3 points, or all input exactly collinear),
+  which returns `Outside` for every query point.
+
+  Verified against an independent BigRational oracle (not this crate's
+  own `Triangle2::relation_to`/`Segment2::relation_to`, which would only
+  re-test internal consistency) covering `locate`'s actual correctness
+  burden — the aggregation/dispatch logic across faces, not the
+  underlying point-in-triangle arithmetic already proven exact
+  elsewhere — plus an explicit face-iteration-order-independence check
+  on a shared interior edge. See
+  `docs/adr/ADR-008-point-location.md` for the full design.
+
 ## [0.5.0] - 2026-08-19
 
 ### Added
