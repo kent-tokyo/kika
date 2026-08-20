@@ -68,3 +68,10 @@ path = "fuzz_targets/point_location.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "voronoi_geometry"
+path = "fuzz_targets/voronoi_geometry.rs"
+test = false
+doc = false
+bench = false
