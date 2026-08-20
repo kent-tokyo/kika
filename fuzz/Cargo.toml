@@ -61,3 +61,10 @@ path = "fuzz_targets/voronoi_topology_validator.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "point_location"
+path = "fuzz_targets/point_location.rs"
+test = false
+doc = false
+bench = false
