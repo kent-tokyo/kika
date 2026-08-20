@@ -34,15 +34,15 @@
       not yet pushed — same "local only, until the next round" pattern
       the 0.5.0 `voronoi_topology_validator` fuzz-target follow-up used.
       Re-verified together as of 2026-08-20 (this session): `cargo fmt
-      --check`, `clippy --all-targets --all-features -D warnings` (native
-      + `wasm32-unknown-unknown`), `cargo test --all-features` (native +
-      MSRV 1.85), `cargo +1.85 test --all-features`, `RUSTDOCFLAGS="-D
-      warnings" cargo doc --no-deps`, `wasm-pack test --node --release`
-      (10/10), `cargo deny check`, `cargo build --examples`, `cargo bench
-      --bench sanity` all pass on the current working tree. Pushing
-      remains its own explicit decision (see this file's "Deferred
-      pending explicit user approval" section and `ROADMAP.md`'s release
-      process note) — not done here.
+      --check`, `clippy --all-targets --all-features -- -D warnings`
+      (native and separately `--target wasm32-unknown-unknown`), `cargo
+      test --all-features` (native), `cargo +1.85 test --all-features`
+      (MSRV), `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`,
+      `wasm-pack test --node --release` (10/10), `cargo deny check`,
+      `cargo build --examples`, `cargo bench --bench sanity` all pass on
+      the current working tree. Pushing remains its own explicit decision
+      (see this file's "Deferred pending explicit user approval" section
+      and `ROADMAP.md`'s release process note) — not done here.
 
 ## Done (0.6.0 release: published)
 
@@ -63,10 +63,15 @@
       and ran `delaunay2`/`Triangulation2::locate` against the real
       published crate, confirming both a `Vertex` hit and an `Outside`
       miss classify correctly.
-- [x] Local `main` == `origin/main` == the `v0.6.0` tag's peeled commit,
-      all `db6d04c967b61ea54aa045d9b01daca9d8710e34`, confirmed via `git
+- [x] `origin/main` == the `v0.6.0` tag's peeled commit, both
+      `db6d04c967b61ea54aa045d9b01daca9d8710e34`, confirmed via `git
       ls-remote --tags origin` (peeled with `^{}`) and `git log
-      origin/main -1`.
+      origin/main -1`. Local `main` is *ahead* of that — by the 4
+      post-release hardening commits noted above plus this session's own
+      doc-only commits, all not yet pushed (see this session's note
+      above on pushing remaining its own explicit decision) — unlike the
+      0.5.0 precedent entry above, written when nothing was outstanding
+      at release time.
 
 ## Done (ADR-008 0.6.0: Triangulation2::locate, Round 1 + 2)
 

@@ -1,7 +1,7 @@
 # Compatibility
 
-Status: Phase 1-5 complete; Phase 6A-6D complete. As of the 0.6.0
-candidate (0.2.0 through 0.5.0 already shipped; 0.6.0 adds
+Status: Phase 1-5 complete; Phase 6A-6D complete. As of 0.6.0, shipped
+2026-08-20 (0.2.0 through 0.6.0 all released; 0.6.0 added
 `Triangulation2::locate`/`PointLocation` point location — see
 `CHANGELOG.md`), Kika is a robust 2D kernel with exact predicates, 2D
 convex hull, Delaunay triangulation, constrained Delaunay triangulation
