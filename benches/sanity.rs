@@ -29,7 +29,10 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use kika::{Point2, Polygon2, constrained_delaunay2, delaunay2, triangulate_polygon, voronoi2};
+use kika::{
+    Point2, PointLocation, Polygon2, constrained_delaunay2, delaunay2, triangulate_polygon,
+    voronoi2,
+};
 
 const TIME_CEILING: Duration = Duration::from_secs(5);
 const POLYGON_TIME_CEILING: Duration = Duration::from_secs(30);
@@ -132,6 +135,25 @@ fn check_voronoi(n: usize) {
     );
 }
 
+fn check_locate(n: usize) {
+    let pts = random_points(0x10ca_7e00_1234_5678 ^ n as u64, n, 1000.0);
+    let t = delaunay2(&pts);
+    let start = Instant::now();
+    for (id, p) in t.vertices() {
+        assert_eq!(
+            t.locate(p),
+            PointLocation::Vertex(id),
+            "locate n={n}: vertex round-trip failed"
+        );
+    }
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < TIME_CEILING,
+        "locate n={n} ({n} calls) took {elapsed:?}, expected well under {TIME_CEILING:?}"
+    );
+    eprintln!("locate                  n={n:<5} {n:>6} calls     {elapsed:?}");
+}
+
 fn check_polygon_triangulation(n: usize) {
     let k = n / 2;
     let poly = star_polygon(k, 1000.0, 400.0);
@@ -162,6 +184,7 @@ fn main() {
         check_delaunay(n);
         check_constrained_delaunay(n);
         check_voronoi(n);
+        check_locate(n);
         check_polygon_triangulation(n);
     }
     println!("\nAll sanity checks passed.");
