@@ -5,6 +5,61 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-20
+
+### Added
+
+- `Voronoi2::vertex_point` / `edge_geometry`: actual coordinates
+  (circumcenters) and edge geometry (segments/rays) on top of 0.5.0's
+  topology-only Voronoi diagram — `VoronoiGeometryError` and
+  `VoronoiEdgeGeometry::{Segment { start, end }, Ray { origin, direction
+  }}`, both `#[non_exhaustive]`. `vertex_point` returns the
+  correctly-rounded (round-to-nearest-even on exact ties) circumcenter
+  of a Voronoi vertex's merged Delaunay face group, via a new internal
+  construction (`predicates::constructions::circumcenter`) following
+  `line_intersection`'s (ADR-004 Phase 5) own
+  correctly-rounded-construction discipline — same
+  degree-3-numerator/degree-2-denominator shape, with
+  `correctly_rounded_divide` extracted into a shared module
+  (`predicates::constructions::rounding`) now that two constructions
+  need it. For a cocircular-merged group, every member face shares one
+  true circumcenter (three non-collinear points determine a circle
+  uniquely); the face actually used is chosen by a canonical,
+  site-identity-keyed rule (lexicographically smallest sorted `VertexId`
+  triple), not construction order.
+
+  `edge_geometry` returns a bounded `Segment` between two vertex
+  coordinates, or an unbounded `Ray` from one. `direction` is an
+  unnormalized outward vector (this crate has no `sqrt`/normalize
+  anywhere) derived via an `orient2d`-based sign choice, guaranteed
+  finite and non-zero for any two distinct finite Delaunay vertices —
+  including opposite-sign, near-`f64::MAX`-magnitude coordinates, where
+  a fixed power-of-two rescale is used as a fallback for a coordinate
+  difference that would otherwise overflow.
+
+  `Err(VoronoiGeometryError::NonFiniteCircumcenter)` when a face is
+  exactly collinear, or thin enough that its true circumradius overflows
+  `f64` — unlike `line_intersection`, whose overflow is purely an
+  input-magnitude ceiling fixable by rescaling, a circumcenter's
+  overflow is driven by the triangle's aspect ratio and cannot be fixed
+  that way. `Err(VoronoiGeometryError::InvalidTopology)` for an internal
+  topology invariant this crate's own construction never violates.
+  Never a panic either way. See
+  `docs/adr/ADR-009-voronoi-geometry.md`.
+
+### Known issues
+
+- `delaunay2()` can panic (`index out of bounds`) on 3 input points with
+  extreme, widely mixed coordinate magnitude (e.g. one coordinate near
+  `4e304`): `orient2d` itself returns permutation-inconsistent answers
+  at that magnitude (`Clockwise` for one argument order, `Collinear` for
+  a transposition of it), which breaks an antisymmetry assumption
+  `delaunay2()`'s own "first 3 non-collinear points" search relies on.
+  Found by `fuzz/fuzz_targets/voronoi_geometry.rs`'s first run; unrelated
+  to Voronoi geometry specifically — a bare `delaunay2()` call
+  reproduces it with no `Voronoi2` involved. Not yet fixed; tracked in
+  `tasks/todo.md`.
+
 ## [0.6.0] - 2026-08-20
 
 ### Added
