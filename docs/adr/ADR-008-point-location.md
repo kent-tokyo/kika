@@ -1,11 +1,11 @@
 # ADR-008: Point location (`Triangulation2::locate`) for 0.6.0
 
-Status: Decided, implementation in progress. `ROADMAP.md` (internal,
-gitignored) already specifies 0.6.0 as "Spatial query API," centered on
-point location, with the target signature this ADR implements
-unchanged. No new dependency, no version bump, no walking-locator
-optimization, no nearest-neighbor query — see "Explicitly out of scope"
-below.
+Status: Decided and implemented, shipped in 0.6.0 (2026-08-20, `v0.6.0`
+tag at `db6d04c`). `ROADMAP.md` (internal, gitignored) already specified
+0.6.0 as "Spatial query API," centered on point location, with the
+target signature this ADR implements unchanged. No new dependency, no
+walking-locator optimization, no nearest-neighbor query was done under
+this ADR — see "Explicitly out of scope" below.
 
 ## Context
 
