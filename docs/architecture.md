@@ -220,9 +220,10 @@ geometric/structural classifications like `Sign`/`Orientation`/
     (exact point-in-polygon), for hole-containment validation.
 
 `docs/adr/ADR-007-voronoi-diagram-topology.md` designs a further layer —
-Voronoi topology as `Triangulation2`'s dual — for 0.5.0; implemented in
-full as `triangulation::voronoi` (see the module tree above), release
-not yet done (see `ROADMAP.md`, internal).
+Voronoi topology as `Triangulation2`'s dual — implemented in full as
+`triangulation::voronoi` (see the module tree above) and released as
+0.5.0. Vertex/edge geometry (circumcenters, rays) is not yet done (see
+`ROADMAP.md`, internal, 0.7.0).
 
 ## Data flow for a predicate call
 
