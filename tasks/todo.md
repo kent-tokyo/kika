@@ -76,12 +76,47 @@
       isolating each commit's actual tree before testing it, not just
       trusting the final combined state was fine.
 - [x] **Not done, deliberately**: `README.md`/`README_ja.md`/
-      `README_zh.md`/`CHANGELOG.md`/`docs/architecture.md`/
-      `docs/compatibility.md` sync, version bump, `wasm-pack test --node`
-      re-run per commit (ran once against the final combined state
-      instead — 10/10 passing), `push`, publish, tag, release. Per this
-      project's own "release preparation is its own separate round"
-      precedent (0.4.0 through 0.6.0) — these 3 commits are local only.
+      `README_zh.md`/`CHANGELOG.md`/`docs/compatibility.md` sync, version
+      bump, `wasm-pack test --node` re-run per commit (ran once against
+      the final combined state instead — 10/10 passing), `push`, publish,
+      tag, release. Per this project's own "release preparation is its
+      own separate round" precedent (0.4.0 through 0.6.0) — these 3
+      commits are local only.
+- [x] **Not done, deliberately**: no fuzz target added for the new
+      `circumcenter` construction, unlike the precedent set by
+      `voronoi_topology_validator` (post-0.5.0) and `point_location`
+      (post-0.6.0) — deferred to release prep like the rest of this list,
+      not an oversight.
+
+## Done (ADR-009 hardening: post-implementation self-review fixes)
+
+- [x] `docs/architecture.md`'s Voronoi-topology paragraph still said
+      "Vertex/edge geometry ... is not yet done" — stale as of `824ef7d`.
+      Fixed the one sentence (distinct from the still-deferred full
+      release-prep sync above, which covers the module tree, not this
+      factual claim).
+- [x] `VoronoiEdgeGeometry::Segment { start, end }`: the pair's order is
+      derived from internal Delaunay face-adjacency order, not sorted by
+      any canonical key (unlike `VoronoiEdgeId`/`VoronoiVertexId`, and
+      unlike `canonical_edges`' own `endpoints.sort()` precedent in the
+      ADR-007 test helpers). Documented as an explicit non-guarantee on
+      the variant rather than left implicit.
+- [x] **Real bug found and fixed, not just documented**:
+      `outward_ray_direction` built a `candidate = pu + perp` `Point2` via
+      `Point2 + Vector2`'s unchecked add, purely to test which side of it
+      `orient2d` reported — but that add has no finiteness check, so for
+      near-`f64::MAX`-magnitude input coordinates `candidate` could
+      silently become non-finite, feeding a non-finite `Point2` into
+      `orient2d` and picking a ray direction by coin flip instead of
+      erroring. Root-cause fix: `perp` (`edge` rotated +90°) is
+      *mathematically* always on `orient2d`'s `CounterClockwise` side of
+      `pu`/`pv` regardless of magnitude (`cross(edge, perp) = edge.x² +
+      edge.y² >= 0`), so the side can be decided without ever
+      constructing `candidate` at all. Removes the overflow path
+      entirely rather than adding a guard around it. Regression test
+      (`ray_direction_correct_side_survives_large_offset_precision_loss`)
+      verified against the reverted-to-buggy code first — confirmed it
+      fails there before confirming it passes fixed.
 
 ## Done (ADR-009: Voronoi vertex/edge geometry design — design only, not implemented)
 

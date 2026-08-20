@@ -13,7 +13,7 @@
 
 use super::delaunay2::Triangulation2;
 use super::ids::{EdgeId, FaceId, VertexId};
-use crate::predicates::{Sign, circumcenter, incircle, orient2d};
+use crate::predicates::{Orientation, Sign, circumcenter, incircle, orient2d};
 use crate::primitives::{Point2, Vector2};
 
 /// A Voronoi cell, identified with the [`VertexId`] of the Delaunay site
@@ -104,10 +104,15 @@ pub enum VoronoiGeometryError {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VoronoiEdgeGeometry {
     /// A finite segment between two Voronoi vertex coordinates.
+    ///
+    /// `start`/`end` carry no orientation meaning -- which one is
+    /// `start` is incidental to internal Delaunay face-adjacency order
+    /// (unlike `VoronoiEdgeId`/`VoronoiVertexId`, this pair is not
+    /// canonically sorted). Treat the pair as unordered.
     Segment {
-        /// The segment's first endpoint.
+        /// One of the segment's two endpoints.
         start: Point2,
-        /// The segment's second endpoint.
+        /// The segment's other endpoint.
         end: Point2,
     },
     /// An infinite ray from `origin` in `direction`.
@@ -699,9 +704,16 @@ impl Voronoi2 {
 
         let edge = pv - pu;
         let perp = Vector2::new_unchecked(-edge.y(), edge.x());
-        let candidate = pu + perp;
 
-        if orient2d(pu, pv, pw) == orient2d(pu, pv, candidate) {
+        // `perp` is `edge` rotated +90 deg, which always lies on
+        // `orient2d(pu, pv, .)`'s CounterClockwise side of the line
+        // through `pu`/`pv` -- a fact of the rotation itself
+        // (cross(edge, perp) == edge.x^2 + edge.y^2 >= 0), true
+        // regardless of `edge`'s magnitude. This lets us pick the side
+        // without ever materializing a `pu + perp` candidate point, which
+        // could overflow to a non-finite `Point2` for near-`f64::MAX`
+        // input coordinates.
+        if orient2d(pu, pv, pw) == Orientation::CounterClockwise {
             -perp
         } else {
             perp
@@ -1426,6 +1438,72 @@ mod tests {
                 VoronoiEdgeGeometry::Segment { .. } => panic!("Unbounded edge produced a Segment"),
             }
         }
+    }
+
+    /// Regression: `outward_ray_direction` used to build `candidate = pu +
+    /// perp` (a plain, unchecked `Point2 + Vector2` add) purely to probe
+    /// its `orient2d` side. When `pu` is far from the origin and the
+    /// triangle's edge is comparatively short, `perp` is too small to
+    /// survive that add -- `candidate` silently rounds back down to `pu`
+    /// exactly, making `orient2d(pu, pv, candidate)` degenerately
+    /// `Collinear` and the old side-test (`orient2d(pu,pv,pw) ==
+    /// orient2d(pu,pv,candidate)`) always false, always returning `perp`
+    /// regardless of `pw`'s real side. This fixture makes that concrete:
+    /// `pu=(1e20,0)`, `pv=(1e20,5)` (edge magnitude 5, far below `1e20`'s
+    /// ULP of ~32768) with a genuinely non-collinear third vertex offset
+    /// by 50000 in `x` (well above that ULP, so `orient2d(pu,pv,pw)` is
+    /// non-degenerate). Fixed by deciding the side from `edge`/`perp`'s
+    /// rotation relation alone, never materializing `candidate` at all.
+    #[test]
+    fn ray_direction_correct_side_survives_large_offset_precision_loss() {
+        let p0 = pt(1e20, 0.0);
+        let p1 = pt(1e20, 5.0);
+        let p2 = pt(1e20 - 50000.0, 2.5);
+        assert_ne!(
+            p2.x(),
+            p0.x(),
+            "fixture requires a genuinely distinct 3rd point"
+        );
+        let v = voronoi2(delaunay2(&[p0, p1, p2]));
+
+        let mut checked = 0;
+        for edge in v.edges() {
+            if !matches!(v.edge_kind(edge), VoronoiEdgeKind::Unbounded { .. }) {
+                continue;
+            }
+            let source_edge = v.dual_delaunay_edge(edge);
+            let (du, dv) = v.delaunay.edge_vertices(source_edge);
+            let face = v
+                .delaunay
+                .adjacent_faces(source_edge)
+                .into_iter()
+                .flatten()
+                .next()
+                .expect("a boundary Delaunay edge has exactly 1 incident face");
+            let third = third_vertex(&v.delaunay, face, du, dv);
+
+            let pu = v.delaunay.vertex_point(du);
+            let pv = v.delaunay.vertex_point(dv);
+            let pw = v.delaunay.vertex_point(third);
+            let direction = v.outward_ray_direction(du, dv, third);
+
+            // Independent side check, computed directly from the original
+            // (unrounded) coordinate differences -- never materializes a
+            // `pu + anything` point, so it isn't subject to the same
+            // precision loss as the code under test.
+            let edge_vec = (pv.x() - pu.x(), pv.y() - pu.y());
+            let w_vec = (pw.x() - pu.x(), pw.y() - pu.y());
+            let cross = |a: (f64, f64), b: (f64, f64)| a.0 * b.1 - a.1 * b.0;
+            let side_w = cross(edge_vec, w_vec);
+            let side_dir = cross(edge_vec, (direction.x(), direction.y()));
+            assert!(
+                side_w.signum() != side_dir.signum(),
+                "direction must point to the opposite side from the third vertex \
+                 (side_w={side_w}, side_dir={side_dir})"
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 3, "a single triangle has exactly 3 hull edges");
     }
 
     #[test]

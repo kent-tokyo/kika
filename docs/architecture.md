@@ -222,8 +222,9 @@ geometric/structural classifications like `Sign`/`Orientation`/
 `docs/adr/ADR-007-voronoi-diagram-topology.md` designs a further layer —
 Voronoi topology as `Triangulation2`'s dual — implemented in full as
 `triangulation::voronoi` (see the module tree above) and released as
-0.5.0. Vertex/edge geometry (circumcenters, rays) is not yet done (see
-`ROADMAP.md`, internal, 0.7.0).
+0.5.0. `docs/adr/ADR-009-voronoi-geometry.md` adds vertex/edge geometry
+(circumcenters, rays) on top — `Voronoi2::vertex_point`/`edge_geometry` —
+implemented but not yet released (see `ROADMAP.md`, internal, 0.7.0).
 
 ## Data flow for a predicate call
 
