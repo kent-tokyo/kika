@@ -126,6 +126,20 @@ impl Triangulation2 {
         self.edge_faces[edge.0 as usize]
     }
 
+    /// Test-only: corrupts `edge`'s incident-face record to "no incident
+    /// face at all" -- a state this type's own construction (both
+    /// Bowyer-Watson's `delaunay2()` and `assemble_triangulation`) never
+    /// produces, since every listed edge is derived from at least one
+    /// face's own local edge list. Exists so `voronoi::tests` (a sibling
+    /// module of this one, unable to reach the private `edge_faces` field
+    /// otherwise) can exercise `Voronoi2::edge_geometry`'s defensive
+    /// `VoronoiGeometryError::InvalidTopology` guard against a state it
+    /// cannot otherwise construct.
+    #[cfg(test)]
+    pub(super) fn clear_adjacent_faces_for_test(&mut self, edge: EdgeId) {
+        self.edge_faces[edge.0 as usize] = [None, None];
+    }
+
     /// `face`'s 3 vertices, counterclockwise.
     pub fn face_vertices(&self, face: FaceId) -> [VertexId; 3] {
         self.faces[face.0 as usize]

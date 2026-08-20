@@ -96,6 +96,16 @@ pub enum VoronoiGeometryError {
     /// overflows `f64`'s representable range. Never a `NaN`/`Infinity`
     /// leaking into a `Point2`.
     NonFiniteCircumcenter,
+    /// An internal topology invariant this method depends on didn't hold
+    /// -- e.g. a `VoronoiVertexId`'s face group was empty, or an
+    /// `Unbounded` edge's source Delaunay edge had no incident face.
+    /// Never expected from a [`Voronoi2`] built by [`voronoi2`] (matching
+    /// `docs/adr/ADR-008-point-location.md`'s posture:
+    /// `validate_topology()` is a test-only diagnostic, never a
+    /// construction-time gate a public method may assume) -- returned
+    /// rather than panicking so a caller holding a
+    /// hand-assembled/corrupted instance gets a typed error, not a crash.
+    InvalidTopology,
 }
 
 /// The actual geometry of a [`VoronoiEdge`] (ADR-009): a bounded segment
@@ -221,6 +231,44 @@ fn third_vertex(delaunay: &Triangulation2, face: FaceId, u: VertexId, v: VertexI
         .into_iter()
         .find(|&w| w != u && w != v)
         .expect("a triangle's vertices must include a 3rd vertex besides its shared edge's two")
+}
+
+/// `pv - pu` as a [`Vector2`], guaranteed finite for any two finite,
+/// distinct points -- unlike a plain `Point2 - Point2`, which can
+/// overflow to a non-finite `Vector2` when `pu`/`pv` have opposite-sign,
+/// near-`f64::MAX`-magnitude coordinates on some axis.
+///
+/// The plain difference is used whenever it doesn't overflow -- always
+/// finite, always the correctly-rounded (often exact, by Sterbenz's
+/// lemma) true difference, so this changes nothing for any coordinate
+/// range this crate's own tests already exercise. The fallback only
+/// triggers when a component difference overflows, which (for finite
+/// operands) requires both `pu` and `pv` to already be within a small
+/// factor of `f64::MAX` in magnitude with opposite signs on that axis --
+/// meaning the *true* difference on the overflowing axis is itself
+/// astronomically large, not a fine geometric detail close to `pu`/`pv`.
+/// Rescaling both points by a fixed `2^-600` first (an exact
+/// power-of-two multiply, then a single subtraction) brings that axis
+/// back into finite range losing no meaningful precision -- but the
+/// *other* axis, if its true difference happens to be extremely small
+/// (e.g. `1e-300`), can underflow to exactly `0.0` under the same fixed
+/// factor. Harmless in practice: that axis is negligible next to the
+/// overflowing one regardless (the resulting direction is off by an
+/// angle on the order of `1e-600` radians, far below any representable
+/// or practically meaningful precision) -- but "no meaningful precision
+/// lost" is a claim about the overflowing axis specifically, not both.
+/// Never scaled back either way -- `outward_ray_direction`'s output has
+/// no magnitude contract, only a side (via `orient2d`, computed
+/// separately from the original, unscaled points) and non-zero-ness,
+/// both preserved by any positive uniform rescale.
+fn edge_vector(pu: Point2, pv: Point2) -> Vector2 {
+    let dx = pv.x() - pu.x();
+    let dy = pv.y() - pu.y();
+    if dx.is_finite() && dy.is_finite() {
+        return Vector2::new_unchecked(dx, dy);
+    }
+    let s = 2f64.powi(-600);
+    Vector2::new_unchecked(pv.x() * s - pu.x() * s, pv.y() * s - pu.y() * s)
 }
 
 /// Builds the [`Voronoi2`] topology dual to `delaunay`.
@@ -601,7 +649,7 @@ impl Voronoi2 {
     /// assert_eq!((p.x(), p.y()), (2.0, 2.0));
     /// ```
     pub fn vertex_point(&self, vertex: VoronoiVertexId) -> Result<Point2, VoronoiGeometryError> {
-        let face = self.canonical_representative_face(vertex);
+        let face = self.canonical_representative_face(vertex)?;
         let [a, b, c] = self.delaunay.face_vertices(face);
         let (pa, pb, pc) = (
             self.delaunay.vertex_point(a),
@@ -660,10 +708,7 @@ impl Voronoi2 {
                     .into_iter()
                     .flatten()
                     .next()
-                    .expect(
-                        "an Unbounded Voronoi edge's source is a boundary Delaunay edge, \
-                         which always has exactly 1 incident face",
-                    );
+                    .ok_or(VoronoiGeometryError::InvalidTopology)?;
                 let w = third_vertex(&self.delaunay, face, u, v);
                 let direction = self.outward_ray_direction(u, v, w);
                 Ok(VoronoiEdgeGeometry::Ray { origin, direction })
@@ -677,7 +722,16 @@ impl Voronoi2 {
     /// (ADR-007's own canonical-id discipline, applied one layer deeper:
     /// see `docs/adr/ADR-009-voronoi-geometry.md`'s "Canonical-per-group
     /// circumcenter"), not `FaceId`/scan order.
-    fn canonical_representative_face(&self, vertex: VoronoiVertexId) -> FaceId {
+    ///
+    /// `Err` only if `vertex`'s group is empty -- never true for a
+    /// `Voronoi2` built by [`voronoi2`] (every `VoronoiVertexId` in range
+    /// has at least one member face by construction), but not assumed:
+    /// a hand-assembled/corrupted instance gets a typed error here
+    /// rather than panicking.
+    fn canonical_representative_face(
+        &self,
+        vertex: VoronoiVertexId,
+    ) -> Result<FaceId, VoronoiGeometryError> {
         self.group_faces[vertex.0 as usize]
             .iter()
             .copied()
@@ -686,23 +740,25 @@ impl Voronoi2 {
                 verts.sort_unstable();
                 verts
             })
-            .expect("a VoronoiVertexId's group always has at least one member face")
+            .ok_or(VoronoiGeometryError::InvalidTopology)
     }
 
     /// The outward (away from `w`) perpendicular direction of Delaunay
     /// hull edge `(u, v)`, `w` being that edge's one incident face's third
     /// vertex. Each component of the edge vector is a single
-    /// correctly-rounded `f64` coordinate difference (`Point2 - Point2`);
-    /// the perpendicular rotation and `orient2d`-based sign selection
-    /// introduce no further error. See
-    /// `docs/adr/ADR-009-voronoi-geometry.md`'s "Determining the ray
+    /// correctly-rounded `f64` coordinate difference (`Point2 - Point2`)
+    /// -- or, in the rare case that difference overflows (see
+    /// [`edge_vector`]), a uniformly-rescaled equivalent; the perpendicular
+    /// rotation and `orient2d`-based sign selection introduce no further
+    /// error. Finite and non-zero for any two distinct finite points --
+    /// see `docs/adr/ADR-009-voronoi-geometry.md`'s "Determining the ray
     /// direction" section.
     fn outward_ray_direction(&self, u: VertexId, v: VertexId, w: VertexId) -> Vector2 {
         let pu = self.delaunay.vertex_point(u);
         let pv = self.delaunay.vertex_point(v);
         let pw = self.delaunay.vertex_point(w);
 
-        let edge = pv - pu;
+        let edge = edge_vector(pu, pv);
         let perp = Vector2::new_unchecked(-edge.y(), edge.x());
 
         // `perp` is `edge` rotated +90 deg, which always lies on
@@ -1350,6 +1406,64 @@ mod tests {
         }
     }
 
+    /// `canonical_representative_face`/`vertex_point`: an internal
+    /// topology invariant this crate's own construction always
+    /// maintains (`group_faces[i]` never empty, since a `VoronoiVertexId`
+    /// is only ever assigned for a group with >= 1 member face) --
+    /// checked rather than trusted, per `docs/adr/ADR-008-point-location.md`'s
+    /// posture. Deliberately corrupted here (not reachable via any public
+    /// constructor) to confirm `Err(InvalidTopology)`, not a panic.
+    #[test]
+    fn empty_face_group_is_a_typed_error_not_a_panic() {
+        let pts = vec![pt(0.0, 0.0), pt(4.0, 0.0), pt(0.0, 4.0)];
+        let mut broken = voronoi2(delaunay2(&pts));
+        let vertex = broken.vertices().next().unwrap();
+        broken.group_faces[vertex.0 as usize].clear();
+
+        assert_eq!(
+            broken.vertex_point(vertex),
+            Err(VoronoiGeometryError::InvalidTopology)
+        );
+        // Propagates through `edge_geometry` too, not just `vertex_point`
+        // directly -- every edge of a single triangle references this
+        // one (now-broken) vertex, whether `Unbounded` (via
+        // `finite_vertex`) or (not present in this single-triangle
+        // fixture, but structurally the same call) `Bounded`.
+        for edge in broken.edges() {
+            assert_eq!(
+                broken.edge_geometry(edge),
+                Err(VoronoiGeometryError::InvalidTopology)
+            );
+        }
+    }
+
+    /// `edge_geometry`'s `Unbounded` branch also has an internal-topology
+    /// `.ok_or(InvalidTopology)` guard (an `Unbounded` edge's source
+    /// Delaunay edge must have exactly 1 incident face). Unlike the
+    /// empty-face-group case above, this invariant is enforced by
+    /// `Triangulation2`'s own construction, and `Triangulation2`'s fields
+    /// are private to a sibling module (`delaunay2`, not a descendant of
+    /// `voronoi`) -- so reaching it needs `Triangulation2`'s own
+    /// `#[cfg(test)] clear_adjacent_faces_for_test`, added specifically
+    /// for this test (see its doc comment in `delaunay2.rs`), rather than
+    /// a `Voronoi2`-field mutation like `group_faces` above.
+    #[test]
+    fn unbounded_edge_missing_incident_face_is_a_typed_error_not_a_panic() {
+        let pts = vec![pt(0.0, 0.0), pt(4.0, 0.0), pt(0.0, 4.0)];
+        let mut broken = voronoi2(delaunay2(&pts));
+        let edge = broken
+            .edges()
+            .find(|&e| matches!(broken.edge_kind(e), VoronoiEdgeKind::Unbounded { .. }))
+            .expect("a single triangle's Voronoi diagram has 3 Unbounded hull edges");
+        let source_edge = broken.dual_delaunay_edge(edge);
+        broken.delaunay.clear_adjacent_faces_for_test(source_edge);
+
+        assert_eq!(
+            broken.edge_geometry(edge),
+            Err(VoronoiGeometryError::InvalidTopology)
+        );
+    }
+
     /// `edge_geometry`'s `Segment` case: both endpoints of a genuine
     /// interior (`Bounded`) Voronoi edge must match `vertex_point`'s own
     /// output for those same two vertices exactly.
@@ -1504,6 +1618,105 @@ mod tests {
             checked += 1;
         }
         assert_eq!(checked, 3, "a single triangle has exactly 3 hull edges");
+    }
+
+    /// `edge_vector`'s core guarantee: finite, non-zero, for two distinct
+    /// finite points regardless of magnitude -- including the case a
+    /// plain `Point2 - Point2` genuinely cannot represent. A hull edge
+    /// with endpoints at `-f64::MAX`/`f64::MAX` makes the plain
+    /// subtraction overflow for real (`2*f64::MAX`, not just close to
+    /// it), unlike this file's earlier `K = 2^1023` false start (which
+    /// broke `orient2d` itself, not just the edge difference -- see
+    /// `docs/numerical-model.md`). This test only checks `edge_vector` in
+    /// isolation, not `orient2d`-based side correctness: at this
+    /// magnitude, any orientation test involving this edge and a 3rd
+    /// vertex would itself need a product term of order `edge_length *
+    /// (3rd vertex offset)`, which overflows `f64` range for essentially
+    /// any non-degenerate triangle -- a pre-existing `orient2d` limit, not
+    /// something `edge_vector` changes or is responsible for.
+    /// `docs/numerical-model.md`'s own measured-safe ceiling for
+    /// `circumcenter`/`vertex_point` is `1e150` *uniform* magnitude, a
+    /// narrower and different claim than "any mixed-magnitude input up to
+    /// `f64::MAX` is fine" -- and a fuzz run of the new
+    /// `fuzz/voronoi_geometry` target found this limit is sharper still:
+    /// mixing an ordinary-magnitude point with one near `4e304` can make
+    /// `orient2d` itself return *permutation-inconsistent* answers
+    /// (`Clockwise` for `(a,b,c)`, `Collinear` for `(a,c,b)`) rather than
+    /// just losing precision -- tracked as discovered work, not fixed by
+    /// this construction.
+    #[test]
+    fn edge_vector_finite_and_nonzero_at_opposite_sign_near_f64_max() {
+        let cases = [
+            (pt(-f64::MAX, 0.0), pt(f64::MAX, 0.0)),
+            (pt(0.0, -f64::MAX), pt(0.0, f64::MAX)),
+            (pt(-f64::MAX, -f64::MAX), pt(f64::MAX, f64::MAX)),
+            (pt(-f64::MAX * 0.6, 3.0), pt(f64::MAX * 0.6, -3.0)),
+        ];
+        for (pu, pv) in cases {
+            assert!(
+                !(pv.x() - pu.x()).is_finite() || !(pv.y() - pu.y()).is_finite(),
+                "fixture must actually overflow plain subtraction: pu={pu:?} pv={pv:?}"
+            );
+            let e = edge_vector(pu, pv);
+            assert!(
+                e.x().is_finite() && e.y().is_finite(),
+                "pu={pu:?} pv={pv:?} -> {e:?}"
+            );
+            assert!(
+                e.x() != 0.0 || e.y() != 0.0,
+                "pu={pu:?} pv={pv:?} -> zero vector"
+            );
+        }
+    }
+
+    /// `edge_vector` changes nothing for coordinate ranges this crate
+    /// already exercises: below the overflow threshold, it must return
+    /// the exact same value plain `pv - pu` would.
+    #[test]
+    fn edge_vector_matches_plain_subtraction_below_overflow_threshold() {
+        let cases = [
+            (pt(0.0, 0.0), pt(1.0, 0.0)),
+            (pt(1e20, 0.0), pt(1e20, 5.0)),
+            (pt(-1e150, 2e100), pt(3e150, -4e100)),
+        ];
+        for (pu, pv) in cases {
+            let e = edge_vector(pu, pv);
+            assert_eq!((e.x(), e.y()), (pv.x() - pu.x(), pv.y() - pu.y()));
+        }
+    }
+
+    /// A shared boundary edge with the 3rd vertex once on each side --
+    /// exercises both branches of `outward_ray_direction`'s
+    /// `orient2d`-based sign choice (a single triangle's own fixed
+    /// winding could otherwise only ever hit one branch), each verified
+    /// against an independent exact cross-product side check.
+    #[test]
+    fn outward_ray_direction_correct_for_third_vertex_on_either_side() {
+        let pu = pt(0.0, 0.0);
+        let pv = pt(0.0, 10.0);
+        let left = pt(-5.0, 5.0);
+        let right = pt(5.0, 5.0);
+
+        for third in [left, right] {
+            let v = voronoi2(assemble_triangulation(
+                vec![pu, pv, third],
+                vec![[VertexId(0), VertexId(1), VertexId(2)]],
+            ));
+            let direction = v.outward_ray_direction(VertexId(0), VertexId(1), VertexId(2));
+            assert!(direction.x().is_finite() && direction.y().is_finite());
+            assert!(direction.x() != 0.0 || direction.y() != 0.0);
+
+            let edge_vec = (pv.x() - pu.x(), pv.y() - pu.y());
+            let w_vec = (third.x() - pu.x(), third.y() - pu.y());
+            let cross = |a: (f64, f64), b: (f64, f64)| a.0 * b.1 - a.1 * b.0;
+            let side_w = cross(edge_vec, w_vec);
+            let side_dir = cross(edge_vec, (direction.x(), direction.y()));
+            assert!(
+                side_w.signum() != side_dir.signum(),
+                "third={third:?}: direction must point opposite the 3rd vertex \
+                 (side_w={side_w}, side_dir={side_dir})"
+            );
+        }
     }
 
     #[test]
