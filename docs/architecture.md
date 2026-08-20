@@ -1,12 +1,12 @@
 # Architecture
 
-Status: reflects Phase 1 through Phase 6D, plus 0.3.0 (robustness) and
-0.4.0 (polygon triangulation with holes) — current as of 0.4.0, the
-latest shipped release. Updated per-phase/per-release, not written ahead
-of the code it describes (this file fell behind that discipline for a
-while — it described only through Phase 4 despite Phase 6D and two
-releases already having shipped — caught and corrected here; see
-`tasks/lessons.md` if a similar staleness turns up again).
+Status: reflects Phase 1 through Phase 6D, plus every release through
+0.7.0 (Voronoi vertex/edge geometry) — current as of 0.7.0, the latest
+release. Updated per-phase/per-release, not written ahead of the code it
+describes (this file fell behind that discipline once already — it
+described only through Phase 4 despite Phase 6D and two releases already
+having shipped — caught and corrected then; see `tasks/lessons.md` if a
+similar staleness turns up again).
 
 ## Crate layout
 
@@ -36,10 +36,18 @@ src/
 │   ├── insphere.rs
 │   ├── polygon2.rs               # polygon_orientation (pub(crate); backs Polygon2::orientation)
 │   └── constructions/
-│       └── line_intersection.rs   # Phase 5: the crate's first exact/certified
-│                                   # *construction* -- correctly_rounded_divide,
-│                                   # plus 0.3.0's exact power-of-two rescaling fix
-│                                   # for extreme/mixed-magnitude overflow
+│       ├── line_intersection.rs   # Phase 5: the crate's first exact/certified
+│       │                           # *construction* -- correctly_rounded_divide,
+│       │                           # plus 0.3.0's exact power-of-two rescaling fix
+│       │                           # for extreme/mixed-magnitude overflow
+│       ├── circumcenter.rs          # 0.7.0, ADR-009: correctly-rounded triangle
+│       │                             # circumcenter, same degree-3/degree-2
+│       │                             # shape as line_intersection, a different
+│       │                             # formula -- backs Voronoi2::vertex_point
+│       └── rounding.rs               # correctly_rounded_divide + next_up/
+│                                      # next_down, extracted out of
+│                                      # line_intersection.rs (0.7.0) once
+│                                      # circumcenter needed it too
 ├── intersections/
 │   └── segment2.rs               # segment_intersection_kind (predicate) /
 │                                  # segment_intersection (construction), split per §4.2
@@ -67,14 +75,18 @@ src/
     │                                  # triangulate_polygon_with_holes (0.4.0) /
     │                                  # PolygonTriangulationError
     ├── voronoi.rs                    # Voronoi2/voronoi2 (0.5.0, ADR-007) --
-    │                                  # topology-only dual of Triangulation2:
-    │                                  # cocircular face grouping via union-find,
-    │                                  # canonical dense id assignment, the
-    │                                  # cells/vertices/edges query API, and the
-    │                                  # ordered cell_edges() boundary walk. No
-    │                                  # coordinates (circumcenter), clipping, or
-    │                                  # nearest-neighbor yet -- deliberately
-    │                                  # deferred, see the ADR
+    │                                  # dual of Triangulation2: cocircular face
+    │                                  # grouping via union-find, canonical dense
+    │                                  # id assignment, the cells/vertices/edges
+    │                                  # query API, and the ordered cell_edges()
+    │                                  # boundary walk. Plus (0.7.0, ADR-009)
+    │                                  # vertex_point/edge_geometry -- actual
+    │                                  # coordinates (circumcenters) and edge
+    │                                  # geometry (segments/rays) on top of the
+    │                                  # topology above, VoronoiGeometryError/
+    │                                  # VoronoiEdgeGeometry. Clipping and
+    │                                  # nearest-neighbor query still not started
+    │                                  # -- deliberately deferred, see the ADRs
     └── locate.rs                     # Triangulation2::locate/PointLocation
                                        # (0.6.0, ADR-008) -- O(F) linear scan over
                                        # faces()/triangles() (index-parallel by
@@ -97,6 +109,17 @@ its correctness argument; Round 2: a shared-interior-edge
 order-independence test, an outer-vs-hole classification test, and an
 independent BigRational oracle covering `locate`'s actual aggregation
 logic rather than re-testing its own primitives).
+
+`docs/adr/ADR-009-voronoi-geometry.md` designed `Voronoi2::vertex_point`/
+`edge_geometry` (above); implementation landed as 3 commits (extract
+`correctly_rounded_divide` into the shared `rounding` module, add the
+`circumcenter` construction, wire up the public API), followed by a
+same-day hardening round that fixed a real ray-direction bug, added a
+ray-direction finiteness guarantee, replaced two internal panics with
+`VoronoiGeometryError::InvalidTopology`, and added
+`fuzz/fuzz_targets/voronoi_geometry.rs` — see `tasks/todo.md` for the
+full record, including a pre-existing, unrelated `delaunay2()` panic
+that fuzz target found (not fixed as part of this work).
 
 ## Error enums are `#[non_exhaustive]` (0.3.0)
 
@@ -224,7 +247,7 @@ Voronoi topology as `Triangulation2`'s dual — implemented in full as
 `triangulation::voronoi` (see the module tree above) and released as
 0.5.0. `docs/adr/ADR-009-voronoi-geometry.md` adds vertex/edge geometry
 (circumcenters, rays) on top — `Voronoi2::vertex_point`/`edge_geometry` —
-implemented but not yet released (see `ROADMAP.md`, internal, 0.7.0).
+released as 0.7.0.
 
 ## Data flow for a predicate call
 

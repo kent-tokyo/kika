@@ -1,5 +1,39 @@
 # Todo
 
+## Done (0.7.0 release preparation)
+
+- [x] User approved starting release preparation (2026-08-20, "go to
+      0.7.0 release preparation") — the standing roadmap-pacing policy's
+      required explicit go-ahead, following push+CI-green on both the
+      implementation (`dda8084`..`e43b125`) and the same-day hardening
+      round (`c0a4a35`..`7fcdf7e`).
+- [x] `CHANGELOG.md`: `[0.7.0] - 2026-08-20` entry — `Voronoi2::
+      vertex_point`/`edge_geometry`, `VoronoiGeometryError`,
+      `VoronoiEdgeGeometry`, plus a "Known issues" entry for the
+      pre-existing `delaunay2()` panic the new fuzz target found (not
+      fixed this round, deliberately — unrelated subsystem).
+- [x] `Cargo.toml` version bumped to `0.7.0`.
+- [x] `docs/architecture.md`: Status line (was stale since 0.4.0 — never
+      updated across 0.5.0/0.6.0 either, caught and fixed here too, not
+      just for 0.7.0), module tree gained `circumcenter.rs`/`rounding.rs`
+      and an updated `voronoi.rs` description, an ADR-009 pointer
+      paragraph matching ADR-007/ADR-008's own precedent.
+- [x] `docs/compatibility.md`: status paragraph, test count (360, was
+      333), the 2 pushes making up 0.7.0's work recorded, `#[non_exhaustive]`
+      list gained `VoronoiGeometryError`, `VoronoiEdgeGeometry` documented
+      as `#[non_exhaustive]` for the "scope, not necessity" reason
+      (matching `VoronoiEdgeKind`'s own precedent), public API surface
+      list updated, the `delaunay2()` known issue recorded.
+- [x] `README.md` (+ `README_ja.md`/`README_zh.md`, translated, not just
+      the English original): Status line, `Voronoi2` bullet rewritten for
+      the geometry addition, a known-issue note on the `delaunay2` bullet,
+      a new doctested "Voronoi diagram geometry" minimal-example snippet
+      (reusing `vertex_point`'s own real doctest, not a new untested one),
+      `examples/voronoi.rs` extended to also print/verify `edge_geometry`
+      output, Maturity table row, Roadmap section, Stability section's
+      `#[non_exhaustive]` list.
+- [ ] `docs/release-checklist.md` rewrite for 0.7.0 — in progress.
+
 ## Discovered, not fixed (delaunay2() panics on permutation-inconsistent orient2d, extreme mixed magnitude)
 
 - [ ] **`delaunay2()` panics** (`index out of bounds: the len is 3 but
