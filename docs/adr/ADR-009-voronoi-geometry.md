@@ -1,7 +1,8 @@
 # ADR-009: Voronoi vertex/edge geometry (circumcenters, rays) for 0.7.0
 
 Status: Decided and implemented (approved and implementation started
-2026-08-20), not yet pushed or released. `ROADMAP.md` (internal,
+2026-08-20), implementation pushed to `origin/main` and CI green
+(2026-08-20, `e43b125`), not yet released. `ROADMAP.md` (internal,
 gitignored) already scoped 0.7.0 as "Voronoi geometry" with an API sketch
 (`Voronoi2::vertex_point`, `VoronoiEdgeGeometry::{Segment, Ray}`) and 4
 explicit design questions this ADR answers — all 4 confirmed by
@@ -11,10 +12,28 @@ to the same `2^-335` floor. Implementation landed as 3 local commits
 (`f995079`..`824ef7d`: extract `correctly_rounded_divide` into a shared
 module, add the `circumcenter` construction, wire up `Voronoi2::
 vertex_point`/`edge_geometry`), each independently fmt/clippy(native+
-wasm32)/full-test-suite/MSRV/doc/deny-verified. Not done as part of this
-round, deliberately: `README`/`CHANGELOG.md`/`docs/architecture.md`/
-`docs/compatibility.md` sync, version bump, `push`, release — per this
-project's own "release preparation is its own separate round" precedent.
+wasm32)/full-test-suite/MSRV/doc/deny-verified.
+
+**Post-push hardening round** (2026-08-20, before release prep): a
+second review pass found and fixed a real wrong-side bug in the ray
+direction construction (`e43b125`, pushed and CI-confirmed separately
+from this round), then a further round fixed a ray-direction finiteness
+gap, replaced two internal `.expect()` panics in `vertex_point`/
+`edge_geometry` with a new `VoronoiGeometryError::InvalidTopology`
+variant, and added `fuzz/fuzz_targets/voronoi_geometry.rs` — see
+"Determining the ray direction"'s "Revised after implementation" note and
+`VoronoiGeometryError`'s own section below for what changed and why. The
+new fuzz target's first run also found a real, pre-existing panic in
+`delaunay2()` itself (unrelated to this ADR's scope, an `orient2d`
+permutation-inconsistency at extreme mixed magnitude) — tracked in
+`tasks/todo.md`, not fixed here.
+
+Not done as part of either round, deliberately: `README`/`CHANGELOG.md`/
+`docs/compatibility.md` sync, version bump, `publish`, `tag`, GitHub
+Release — per this project's own "release preparation is its own
+separate round" precedent. (`docs/architecture.md` did get one factual
+correction — a stale "not yet done" claim invalidated by the first
+push — distinct from the still-deferred full release-prep sync.)
 
 ## Context
 
@@ -152,12 +171,48 @@ edge_dx = v.x - u.x,  edge_dy = v.y - u.y   -- each a single correctly-rounded
                                               -- see the caveat below), same as
                                               -- any other Vector2 built from
                                               -- two Point2s in this crate
-perp = (-edge_dy, edge_dx)                   -- one of the two perpendiculars
--- orient2d(u, v, w) gives which side w is on; orient2d(u, v, u + perp) gives
--- which side perp points to; flip perp's sign if they agree, so the result
--- points to the opposite side from w
-direction = if same_side(perp, w) { -perp } else { perp }
+perp = (-edge_dy, edge_dx)                   -- edge rotated +90 deg
+-- perp is *mathematically* always on orient2d(u,v,.)'s CounterClockwise
+-- side of the line through u/v (cross(edge, perp) == edge_dx^2+edge_dy^2
+-- >= 0, true regardless of edge's magnitude) -- so orient2d(u, v, w)
+-- alone decides which side w is on, and hence which sign to flip
+direction = if orient2d(u, v, w) == CounterClockwise { -perp } else { perp }
 ```
+
+**Revised after implementation (still 0.7.0, hardening round, not yet
+released), not as originally drafted above.** The first implementation
+matched this ADR's original pseudocode literally: `orient2d(u, v, u +
+perp)`, comparing against `orient2d(u, v, w)`, to decide which side
+`perp` was already on. That is wrong in two ways this round fixed:
+
+1. **Wrong side for large-offset-short-edge inputs.** `u + perp` is an
+   unchecked `Point2 + Vector2` add; when `u` is far from the origin and
+   the edge (hence `perp`) is comparatively short, the add silently
+   rounds `perp`'s contribution away — `u + perp` collapses to exactly
+   `u`, making `orient2d(u, v, u+perp)` degenerately `Collinear` and the
+   comparison always false, always returning `perp` regardless of `w`'s
+   real side. Fixed by deciding the side from `perp`'s fixed rotation
+   relation to `edge` directly (the revised pseudocode above) — this is
+   not just a different implementation of the same idea, it removes the
+   `u + perp` construction entirely, so there is nothing left to round
+   away.
+2. **Non-finite direction for opposite-sign near-`f64::MAX` endpoints.**
+   `edge_dx`/`edge_dy` themselves, computed as a plain `Point2 - Point2`,
+   can overflow to `Infinity` when `u`/`v` have opposite-sign coordinates
+   both close to `f64::MAX` on some axis. Fixed by a fallback: if the
+   plain difference overflows, rescale both points by a fixed `2^-600`
+   first (an exact power-of-two multiply) and difference the scaled
+   values instead — always finite, never scaled back (`direction` has no
+   magnitude contract, only a side and non-zero-ness, both preserved by
+   any positive uniform rescale).
+
+Both are proper subsets of what this section already argued (a single
+correctly-rounded subtraction, `orient2d`-based sign selection, no
+further error) — the *shape* of the guarantee is unchanged, only a
+construction bug and a finiteness gap in the first implementation are
+fixed. See `fuzz/fuzz_targets/voronoi_geometry.rs`'s own regression tests
+and `src/triangulation/voronoi.rs`'s `edge_vector`/`outward_ray_direction`
+for the current, correct version.
 
 **Precise framing, not overclaimed:** each of `edge_dx`/`edge_dy` is a
 single *correctly-rounded* `f64` subtraction of two already-finite
@@ -310,7 +365,19 @@ pub enum VoronoiGeometryError {
 
 Single variant for 0.7.0 — `#[non_exhaustive]` from the start regardless,
 matching every `Result`-style error enum in this crate since 0.3.0, not
-because a second variant is anticipated yet. Construction path: the same
+because a second variant is anticipated yet.
+
+**Post-implementation hardening round (still 0.7.0, not yet released)
+added a second variant, `InvalidTopology`**: `canonical_representative_face`
+and `edge_geometry`'s `Unbounded` branch each had an internal
+`.expect(...)` on a topology invariant this crate's own construction
+always maintains (a `VoronoiVertexId`'s face group is never empty; an
+`Unbounded` edge's source Delaunay edge always has exactly 1 incident
+face) but never *proved* unreachable from a public method's own
+perspective — matching this ADR's own "checked rather than trusted"
+posture for `d`-is-zero above, and ADR-008's posture on
+`validate_topology`. Adding this variant to an already-`#[non_exhaustive]`
+enum before 0.7.0 has shipped is not a SemVer event. Construction path: the same
 rescale-by-power-of-two guard `line_intersection` already uses (for
 genuine large-input-coordinate overflow), *plus* the `d`-is-zero check
 above, *plus* an explicit finiteness check on `correctly_rounded_divide`'s

@@ -1,5 +1,103 @@
 # Todo
 
+## Discovered, not fixed (delaunay2() panics on permutation-inconsistent orient2d, extreme mixed magnitude)
+
+- [ ] **`delaunay2()` panics** (`index out of bounds: the len is 3 but
+      the index is 3`, `src/triangulation/delaunay2.rs:235`) on 3 points
+      with widely mixed magnitude. Found by `fuzz/fuzz_targets/
+      voronoi_geometry.rs`'s first-ever run (raw `f64::from_bits`
+      coordinates) — unrelated to Voronoi geometry itself; a bare
+      `delaunay2(&[p0, p1, p2])` call reproduces it with no `Voronoi2`
+      involved. Minimal repro (each `Point2::new(x, y).unwrap()`):
+      `p0 = (4.523334248222805e-282, 6.612169496581129e-281)`,
+      `p1 = (3.2186699543901864e-57, -4.251746146807175e304)`,
+      `p2 = (2.247760886104758e-307, 1.3683225479033359e-48)`.
+- [ ] **Root cause identified, not fixed**: `orient2d` itself returns
+      *permutation-inconsistent* answers for these 3 points —
+      `orient2d(p0,p1,p2) == Clockwise` but `orient2d(p0,p2,p1) ==
+      Collinear` (swapping the last two arguments should always negate a
+      non-`Collinear` result exactly; it can never turn a genuine
+      non-collinear triple into `Collinear`). Confirmed the trigger is
+      mixed extreme magnitude, not merely "below the documented
+      `~1.7e-292` floor": replacing `p2` with `(1e-200, ...)` (well above
+      that floor) still reproduces the inconsistency, and replacing
+      `p1`'s `~4.25e304` y-coordinate with an ordinary-magnitude value
+      makes the inconsistency disappear entirely. `delaunay2()`'s own
+      "first 3 non-collinear points" loop
+      (`src/triangulation/delaunay2.rs:230-237`) explicitly assumes
+      antisymmetry/consistency it doesn't get here, and its own comment
+      says as much ("if every `pts[i]` were collinear ... the whole set
+      would be collinear, contradicting the hull check above") — that
+      argument silently assumes `orient2d` is self-consistent under
+      permutation, which this input violates.
+- [ ] **Deliberately out of scope for the 0.7.0 Voronoi-geometry
+      hardening round** that found it: fixing `orient2d`'s exact fallback
+      (or `convex_hull2`'s consistency with it) at this magnitude is a
+      `predicates`-level investigation, not a `triangulation::voronoi`
+      one. Needs its own round: likely investigate whether
+      `product_of_expansions`/`diff_expansion` overflow internally for
+      `~1e304`-scale differences (echoes, but is not identical to, the
+      already-documented "K = 2^1023 breaks orient2d" finding from the
+      ADR-009 implementation round — that one was `Collinear`
+      misclassification of a single call, not permutation
+      inconsistency across calls). The crash artifact itself was deleted
+      (`fuzz/artifacts/` is gitignored and regenerable; the 3 coordinates
+      above are the reproduction, not the binary file).
+
+## Done (ADR-009 0.7.0 hardening round: ray-direction finiteness, InvalidTopology, fuzz target)
+
+- [x] Fixed a real wrong-side bug in `outward_ray_direction` (found via
+      self-review before this round, pushed separately as `e43b125`):
+      the original implementation matched this ADR's own first-draft
+      pseudocode literally (`orient2d(u,v,u+perp)`), which silently
+      returns the wrong direction for a large-offset/short-edge input
+      (the `u+perp` add rounds `perp` away). Fixed by deciding the side
+      from `perp`'s fixed rotation relation to `edge` directly, never
+      materializing `u+perp` at all.
+- [x] **Ray-direction finiteness guarantee**: `edge_vector` (new free
+      function, `src/triangulation/voronoi.rs`) replaces a plain
+      `Point2 - Point2` in `outward_ray_direction` — falls back to a
+      fixed `2^-600`-rescaled difference when the plain one overflows
+      (only possible for opposite-sign, near-`f64::MAX` endpoints on some
+      axis), never scaled back. Proven finite and non-zero for any two
+      distinct finite points; verified directly (`edge_vector_finite_and_
+      nonzero_at_opposite_sign_near_f64_max`) and end-to-end
+      (`outward_ray_direction_correct_for_third_vertex_on_either_side`,
+      exact-cross-product side check on both branches of the `orient2d`
+      choice).
+- [x] **`VoronoiGeometryError::InvalidTopology`** (new variant, enum
+      already `#[non_exhaustive]` so not a SemVer event pre-release):
+      replaces two internal `.expect()` panics — `canonical_representative_
+      face`'s empty-group case (reachable via direct `Voronoi2` field
+      corruption, tested: `empty_face_group_is_a_typed_error_not_a_panic`)
+      and `edge_geometry`'s "`Unbounded` edge's source has no incident
+      face" case (not reachable via any legitimate `Voronoi2`/
+      `Triangulation2` construction path — `Triangulation2`'s own
+      invariant guarantees every listed edge has >= 1 incident face, and
+      its fields are private to a sibling module — so a
+      `#[cfg(test)] pub(super) clear_adjacent_faces_for_test` corruption
+      hook was added to `delaunay2.rs` specifically to reach it; tested:
+      `unbounded_edge_missing_incident_face_is_a_typed_error_not_a_panic`).
+- [x] `fuzz/fuzz_targets/voronoi_geometry.rs` (registered in
+      `fuzz/Cargo.toml`): raw `f64::from_bits` coordinates (not the
+      small-integer grid the topology-validator targets use) through
+      `delaunay2` -> `voronoi2` -> `vertex_point`/`edge_geometry` on
+      every vertex/edge, asserting finiteness (`Point2`/`Segment`/`Ray`
+      origin) and ray-direction non-zero-ness; `Err(VoronoiGeometryError)`
+      accepted as a correct rejection. Found the `delaunay2()` bug above
+      on its first run — a real result, not a clean-bill-of-health.
+- [x] Doc sync: `docs/adr/ADR-009-voronoi-geometry.md`'s "Determining the
+      ray direction" section revised to describe the fixed algorithm (not
+      the original buggy pseudocode) with a "Revised after implementation"
+      note explaining both bugs; `VoronoiGeometryError` section documents
+      `InvalidTopology`; Status line updated (pushed, CI green at
+      `e43b125`, hardening round recorded). `docs/degeneracy-policy.md`
+      gained 3 new rows (finite-direction guarantee, the discovered
+      `orient2d` inconsistency, `InvalidTopology`).
+- [x] **Not done, deliberately**: the `delaunay2()` bug above (separate
+      round), `README`/`CHANGELOG.md`/`docs/compatibility.md` sync,
+      version bump, publish, tag, release.
+
 ## Done (ADR-009 0.7.0: Voronoi vertex/edge geometry, implementation)
 
 - [x] User approved the ADR and implementation start (2026-08-20, "approve
