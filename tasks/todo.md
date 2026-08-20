@@ -1,5 +1,88 @@
 # Todo
 
+## Done (ADR-009 0.7.0: Voronoi vertex/edge geometry, implementation)
+
+- [x] User approved the ADR and implementation start (2026-08-20, "approve
+      the ADR (and implementation start)") — the standing roadmap-pacing
+      policy's required explicit go-ahead for both the design round
+      (already had one) and starting implementation.
+- [x] `f995079` refactor(predicates): extract `correctly_rounded_divide`
+      (+ `next_up`/`next_down` + its test-only iteration-count
+      instrumentation) from `line_intersection.rs` into
+      `predicates::constructions::rounding`, `pub(super)` so both
+      `line_intersection` and the new `circumcenter` can call it.
+      Behavior-preserving, verified: `line_intersection`'s full existing
+      test suite (unit + differential) passed unchanged through the new
+      call site before this commit landed.
+- [x] `e1a05f0` feat(predicates): add `circumcenter` (`Option<Point2>`,
+      `predicates::constructions::circumcenter.rs`) — same
+      correctly-rounded construction discipline as `line_intersection`
+      (ADR-004 Phase 5), a different (but same-degree) formula. Own test
+      suite: hand-computed circumcenters (right/equilateral triangles),
+      exact-collinear rejection, a reproducible thin-triangle overflow
+      case, a divide-loop iteration measurement (2, matching
+      `line_intersection`'s own). Landed with `#![allow(dead_code)]`
+      (not yet wired to any public API), matching ADR-007 Phase 7A's own
+      precedent, as its own commit.
+- [x] **Real bug caught while building the overflow test fixture**: a
+      first attempt used `c=(0.5, eps)` with `eps` the smallest positive
+      subnormal `f64` — `orient2d(a,b,c)` itself reported `Collinear` on
+      it (confirmed via a throwaway debug test), meaning that fixture sat
+      *below* the `~1.7e-292` exact-product representability floor
+      documented in `docs/numerical-model.md` for *every* predicate in
+      this crate, not a circumcenter-specific issue — it would have
+      tested exactness breakdown in general, not this construction's own
+      genuine unbounded-output failure mode. Replaced with an empirically
+      swept, verified-safe fixture (`a=(0,0)`, `b=(L,0)`, `c=(L/2,h)`,
+      `L=1e75`, `h=1e-170` — both individually far above the
+      representability floor, `orient2d` confirmed `CounterClockwise`)
+      that genuinely overflows for the right reason (aspect ratio, not
+      magnitude-floor breakdown).
+- [x] `824ef7d` feat(triangulation): wire up `Voronoi2::vertex_point`/
+      `edge_geometry`, `VoronoiGeometryError`/`VoronoiEdgeGeometry`
+      (both `#[non_exhaustive]`), re-exported at `triangulation::mod.rs`
+      and the crate root (ADR-007 precedent, explicitly checked — the
+      first ADR-009 draft didn't say this, added after review). Canonical
+      cocircular-group representative face: lexicographically-smallest
+      sorted `VertexId` triple (site-identity-keyed, not `FaceId`/scan
+      order — matters below the exact-computation floor, where the
+      "any member gives the same answer" argument no longer strictly
+      holds). Ray direction: `orient2d`-based sign, no division,
+      deliberately unnormalized (no `sqrt` anywhere in this crate).
+      `Triangulation2` gained a small `pub(super) vertex_point(VertexId)
+      -> Point2` accessor (no prior single-vertex lookup existed);
+      `Vector2` gained `pub(crate) new_unchecked`, mirroring `Point2`'s.
+- [x] Independent `BigRational` oracle (`tests/differential/voronoi_geometry.rs`,
+      circumcenter formula re-derived from scratch): random/mixed-magnitude
+      triangles, magnitude floor sweep (measured `2^-335`, *identical* to
+      `line_intersection`'s own measured floor — confirms both share the
+      same degree-3/degree-2 magnitude behavior, not just a similar one,
+      resolving ADR-009's own "Assumptions to prove" #1), magnitude
+      ceiling sweep past `RESCALE_THRESHOLD` (`1e90`).
+- [x] `docs/numerical-model.md` gained a Phase 6 section recording the
+      above measurements; `docs/degeneracy-policy.md` gained a
+      Voronoi-geometry degenerate-case table — both implementation-round
+      deliverables the ADR itself named in advance, not an afterthought.
+      `docs/adr/ADR-009-voronoi-geometry.md`'s own Status line updated to
+      "Decided and implemented... not yet pushed or released."
+- [x] 348 → 354 tests (220 → 225 unit incl. `circumcenter`'s own 8 +
+      `rounding`'s relocated 3, 64 → 70 differential incl. 6 new). Full
+      quality bar green at every one of the 3 commits above (not just the
+      final state): `cargo fmt --check`, `clippy --all-targets
+      --all-features -- -D warnings` (native + `wasm32-unknown-unknown`),
+      `cargo test --all-features`, `cargo +1.85 test --all-features`
+      (MSRV), `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`,
+      `cargo deny check` — verified via `git stash push --keep-index -u`
+      isolating each commit's actual tree before testing it, not just
+      trusting the final combined state was fine.
+- [x] **Not done, deliberately**: `README.md`/`README_ja.md`/
+      `README_zh.md`/`CHANGELOG.md`/`docs/architecture.md`/
+      `docs/compatibility.md` sync, version bump, `wasm-pack test --node`
+      re-run per commit (ran once against the final combined state
+      instead — 10/10 passing), `push`, publish, tag, release. Per this
+      project's own "release preparation is its own separate round"
+      precedent (0.4.0 through 0.6.0) — these 3 commits are local only.
+
 ## Done (ADR-009: Voronoi vertex/edge geometry design — design only, not implemented)
 
 - [x] `docs/adr/ADR-009-voronoi-geometry.md` — full design for 0.7.0's

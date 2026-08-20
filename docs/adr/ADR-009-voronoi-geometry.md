@@ -1,13 +1,20 @@
 # ADR-009: Voronoi vertex/edge geometry (circumcenters, rays) for 0.7.0
 
-Status: Proposed, not yet implemented/reviewed. `ROADMAP.md` (internal,
-gitignored) already scopes 0.7.0 as "Voronoi geometry" with an API sketch
+Status: Decided and implemented (approved and implementation started
+2026-08-20), not yet pushed or released. `ROADMAP.md` (internal,
+gitignored) already scoped 0.7.0 as "Voronoi geometry" with an API sketch
 (`Voronoi2::vertex_point`, `VoronoiEdgeGeometry::{Segment, Ray}`) and 4
-explicit design questions this ADR answers. Per this project's own
-"design and implementation are separate rounds, each with its own
-go-ahead" discipline (ADR-007/ADR-008 precedent), this document is a
-design artifact only — no `src/` code, `Cargo.toml` change, version
-bump, `push`, or release.
+explicit design questions this ADR answers — all 4 confirmed by
+implementation, including the magnitude-range prediction
+(`line_intersection`-like, not `incircle`-like), measured identical down
+to the same `2^-335` floor. Implementation landed as 3 local commits
+(`f995079`..`824ef7d`: extract `correctly_rounded_divide` into a shared
+module, add the `circumcenter` construction, wire up `Voronoi2::
+vertex_point`/`edge_geometry`), each independently fmt/clippy(native+
+wasm32)/full-test-suite/MSRV/doc/deny-verified. Not done as part of this
+round, deliberately: `README`/`CHANGELOG.md`/`docs/architecture.md`/
+`docs/compatibility.md` sync, version bump, `push`, release — per this
+project's own "release preparation is its own separate round" precedent.
 
 ## Context
 
