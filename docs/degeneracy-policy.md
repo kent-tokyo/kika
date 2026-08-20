@@ -139,6 +139,24 @@ cells/vertices/edges exist and how do they connect", not "where".
 | `cell_edges()` on a cell with only 1 incident Delaunay face (e.g. any cell in a single-triangle triangulation) | Exactly 2 `Unbounded` edges (both of the site's hull-boundary edges), not 1 or 3 — the walk's entry and exit rays coincide with the same single face's two boundary edges. |
 | `cell_edges()`'s ordering under cocircular merging | Never splits into two disconnected runs of the same `VoronoiVertexId` — proven, not just tested: if two faces incident to one site land in the same cocircular group, every face between them in the local rotation must too (their shared vertex plus both circles' defining triples force one common circle, always caught by `voronoi2`'s exhaustive adjacent-pair testing, never just a spanning-structure subset of it). |
 
+## Point location degeneracies (0.6.0, implemented)
+
+`Triangulation2::locate`'s scope is deliberately linear-scan-only (`O(F)`,
+no spatial index) — see `docs/adr/ADR-008-point-location.md` for the full
+design and correctness argument; every case below is verified either in
+`src/triangulation/locate.rs`'s own unit tests, the independent
+BigRational oracle in `tests/differential/locate.rs`, or (at much larger
+scale) `fuzz/fuzz_targets/point_location.rs`.
+
+| Case | Behavior |
+|---|---|
+| Point exactly equals a vertex's coordinate | `PointLocation::Vertex(id)`, always — never conflated with the `Face`/`Edge` cases even though the underlying `Triangle2::relation_to`'s `OnBoundary` result itself doesn't distinguish "at a vertex" from "on an edge"; `locate` does that disambiguation itself via exact coordinate equality, checked before falling through to the edge case. |
+| Point on a bounded edge (hull or interior), not at either endpoint | `PointLocation::Edge(id)` — proven, not just tested, to always find a match for a non-degenerate CCW face (ADR-008's "`OnBoundary` implies a bounded edge" argument: a point on an edge's line but outside its actual segment forces both a clockwise and counterclockwise result among `Triangle2::relation_to`'s 3 `orient2d` calls, which makes it return `Outside`, not `OnBoundary`, in the first place). |
+| Point on a shared interior edge, regardless of which of its 2 incident faces the scan reaches first | Resolves to the exact same `EdgeId` either way — edges are deduplicated by canonical vertex pair in `assemble_triangulation`, so there is only one `EdgeId` for either face to find. Verified directly: the same topology built via `assemble_triangulation` with its 2 faces in reversed relative order still resolves a point on their shared edge to the same edge (by endpoint coordinates, since raw `EdgeId` is independently numbered per construction). |
+| Point outside the triangulated domain | `PointLocation::Outside` — meaning "not covered by any face," *not* "outside the convex hull." A point geometrically inside a `triangulate_polygon_with_holes` hole is also `Outside`, since the hole's interior has no face covering it; a point on the hole's own boundary is a real `Edge`. |
+| Fewer than 3 distinct points, or all points collinear (`delaunay2`'s own degenerate-input case) | `locate` returns `Outside` for every query point, never a panic — inherited, not a new decision `locate` makes: `Triangulation2::empty()` records no vertices at all, so even a query point exactly equal to one of the degenerate input's own points still returns `Outside`. |
+| A collinear stretch on the convex hull (e.g. 3+ points on one straight hull edge, with other points making the overall set non-degenerate) | No special case needed or present — the "flat" middle point is still a real vertex like any other, resolves to `Vertex`. Mirrors ADR-007's own precedent of testing this case explicitly for Voronoi rather than assuming it's fine. |
+
 ## Algorithm-level tie-breaking (not yet applicable)
 
 Polygon Boolean (Phase 6) has cases with more than one topologically valid
