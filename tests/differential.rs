@@ -26,3 +26,5 @@ mod point_in_triangle;
 mod point_on_segment;
 #[path = "differential/segment_intersection.rs"]
 mod segment_intersection;
+#[path = "differential/voronoi_geometry.rs"]
+mod voronoi_geometry;

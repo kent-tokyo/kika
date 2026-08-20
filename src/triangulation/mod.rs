@@ -11,5 +11,6 @@ pub use ids::{EdgeId, FaceId, VertexId};
 pub use locate::PointLocation;
 pub use polygon::{PolygonTriangulationError, triangulate_polygon, triangulate_polygon_with_holes};
 pub use voronoi::{
-    Voronoi2, VoronoiCellId, VoronoiEdge, VoronoiEdgeId, VoronoiEdgeKind, VoronoiVertexId, voronoi2,
+    Voronoi2, VoronoiCellId, VoronoiEdge, VoronoiEdgeGeometry, VoronoiEdgeId, VoronoiEdgeKind,
+    VoronoiGeometryError, VoronoiVertexId, voronoi2,
 };

@@ -7,7 +7,7 @@ mod orient3d;
 mod polygon2;
 mod sign;
 
-pub(crate) use constructions::line_intersection;
+pub(crate) use constructions::{circumcenter, line_intersection};
 pub use incircle::incircle;
 pub use insphere::insphere;
 pub use orient2d::orient2d;

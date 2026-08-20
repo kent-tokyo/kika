@@ -35,6 +35,15 @@ impl Vector2 {
         }
     }
 
+    /// Builds a vector without validating finiteness. For internal use by
+    /// arithmetic on already-finite operands — mirrors
+    /// [`crate::primitives::Point2::new_unchecked`]. Not exposed publicly:
+    /// `new` (or subtracting two already-finite `Point2`s) is the only
+    /// finiteness boundary.
+    pub(crate) fn new_unchecked(x: f64, y: f64) -> Self {
+        Vector2 { x, y }
+    }
+
     /// The x component.
     #[inline]
     pub fn x(&self) -> f64 {

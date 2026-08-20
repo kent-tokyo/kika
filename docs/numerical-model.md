@@ -526,6 +526,70 @@ comfortably past the old `~5.6e102` failure point, up to where
 established by the caller (`segment_intersection`'s `Proper` classification
 already guarantees this), not re-checked here.
 
+## Phase 6 (ADR-009): circumcenter — same construction shape as Phase 5, a genuinely new failure mode
+
+`predicates::constructions::circumcenter` (`Voronoi2::vertex_point`/
+`edge_geometry`, 0.7.0) is the first new correctly-rounded construction
+since Phase 5's `line_intersection`. Same shape, reusing the same shared
+machinery (`correctly_rounded_divide`, extracted out of
+`line_intersection.rs` into `predicates::constructions::rounding` once a
+second construction needed it — see the ADR's own "reuse or duplicate?"
+section): a degree-2 exact-expansion denominator (`d`, literally
+`2 * orient2d(a,b,c)`'s own determinant), a degree-3 exact-expansion
+numerator per output coordinate (vertex `a`'s coordinate folded in to
+avoid double-rounding, mirroring `line_intersection`'s own "the `A*d1`
+terms cancel" trick), one `correctly_rounded_divide` call per coordinate.
+
+**Magnitude range, measured identical to Phase 5's, not just similarly
+wide.** `tests/differential/voronoi_geometry.rs`'s `magnitude_floor_sweep`
+found no failure down through `2^-335` (`~1.4e-101`) against an
+independent `BigRational` oracle — the *exact* same boundary
+`line_intersection`'s own `magnitude_floor_sweep` measures, consistent
+with both constructions sharing the identical degree-3/degree-2 shape (see
+"Magnitude range, measured wider than expected" above for why degree, not
+"is it a predicate or a construction", governs this). The
+`magnitude_ceiling_sweep` companion test confirms both finiteness and
+correctness up through uniform coordinate magnitude `1e150`, past
+`circumcenter`'s own `RESCALE_THRESHOLD` (`1e90`, same value and
+reasoning as `line_intersection`'s).
+
+**Divide-loop iteration bound, also measured identical to Phase 5's.**
+`circumcenter`'s own `divide_loop_iteration_bound_is_generous` test
+(`src/predicates/constructions/circumcenter.rs`) measures 2 iterations
+worst case — including a cancellation family Phase 5's own sweep doesn't
+cover (a circumcenter near the origin with vertices far from it, where
+`a.x*d` and the offset terms are large and nearly cancel in the plain-`f64`
+initial guess) — matching `line_intersection`'s own measured "2
+iterations" exactly, not just falling within the shared `0..8` safety
+bound by coincidence.
+
+**A genuinely new failure mode, not present in Phase 5 at all.** Unlike
+`line_intersection`, whose overflow ceiling is entirely a function of
+*input* coordinate magnitude (fixed by rescaling), `circumcenter`'s true
+output can diverge to infinity for perfectly ordinary, bounded input
+coordinates: a triangle's circumradius is unbounded as it approaches
+collinear, independent of how small the triangle's own coordinates are.
+Confirmed concretely and reproducibly — not just argued — by
+`thin_triangle_overflow_returns_none_not_a_panic`: `a=(0,0)`,
+`b=(L,0)`, `c=(L/2,h)` with `L=1e75`, `h=1e-170` (both values
+individually far above the `~1.7e-292` exact-product representability
+floor below this document, and `orient2d(a,b,c)` independently confirmed
+`CounterClockwise` — a genuine, non-degenerate triangle, not an
+accidentally-collinear fixture) already overflows `f64::MAX`. Rescaling
+does not help here: scaling all three points by `s` scales the true
+(already-overflowing) circumcenter by `s` too, so scaling the result back
+after the fact just re-overflows again — only the explicit
+finiteness check after scale-back catches this, which is why
+`circumcenter`/`vertex_point`/`edge_geometry` are fallible
+(`Option`/`Result`) where `line_intersection` is not. A first attempt at
+this fixture used a subnormal `eps` for `c`'s `y` coordinate
+(`c=(0.5,eps)`, `eps` the smallest positive `f64`) — rejected once
+`orient2d(a,b,c)` itself reported `Collinear` on it: that regime sits
+*below* the representability floor for every predicate in this crate, not
+a circumcenter-specific issue, so it would have tested the wrong thing
+(exactness breakdown generally, not this construction's own genuine
+unbounded-output failure mode).
+
 ## What is *not* claimed
 
 This is a two-stage (filter + exact) model, not Shewchuk's three-stage

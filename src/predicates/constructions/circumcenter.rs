@@ -1,11 +1,3 @@
-//! Not yet called by anything (that lands in the next commit, wiring it
-//! into `Voronoi2::vertex_point`/`edge_geometry` per ADR-009) --
-//! `#![allow(dead_code)]` deliberately, matching ADR-007 Phase 7A's own
-//! precedent for landing internal construction machinery ahead of its
-//! public consumer as its own reviewable, independently-tested step.
-
-#![allow(dead_code)]
-
 use super::super::expansion::{
     diff_expansion, expansion_sign, expansion_sum, negate, product_of_expansions, scale_expansion,
 };

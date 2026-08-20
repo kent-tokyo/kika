@@ -157,6 +157,27 @@ scale) `fuzz/fuzz_targets/point_location.rs`.
 | Fewer than 3 distinct points, or all points collinear (`delaunay2`'s own degenerate-input case) | `locate` returns `Outside` for every query point, never a panic — inherited, not a new decision `locate` makes: `Triangulation2::empty()` records no vertices at all, so even a query point exactly equal to one of the degenerate input's own points still returns `Outside`. |
 | A collinear stretch on the convex hull (e.g. 3+ points on one straight hull edge, with other points making the overall set non-degenerate) | No special case needed or present — the "flat" middle point is still a real vertex like any other, resolves to `Vertex`. Mirrors ADR-007's own precedent of testing this case explicitly for Voronoi rather than assuming it's fine. |
 
+## Voronoi diagram geometry degeneracies (0.7.0, implemented)
+
+`Voronoi2::vertex_point`/`edge_geometry`'s scope adds coordinates
+(circumcenters, ray directions) on top of 0.5.0's topology-only diagram —
+see `docs/adr/ADR-009-voronoi-geometry.md` for the full design and
+correctness argument; every case below is verified either in
+`src/triangulation/voronoi.rs`'s own unit tests, the independent
+`BigRational` oracle in `tests/differential/voronoi_geometry.rs`, or
+`predicates::constructions::circumcenter`'s own internal test suite.
+
+| Case | Behavior |
+|---|---|
+| An ordinary (non-merged) Voronoi vertex | `vertex_point` computes that one Delaunay face's circumcenter directly, correctly rounded (ADR-004-style "float+certificate", reusing `line_intersection`'s construction shape). |
+| A cocircular-merged group (2+ Delaunay faces, ADR-007) | Every member face shares one true circumcenter (three non-collinear points determine a circle uniquely), so `vertex_point`'s correctly-rounded output is provably identical regardless of which member face computes it — verified directly, not just argued: `cocircular_group_circumcenter_identical_regardless_of_member_face` computes the circumcenter from *every* member face of an 8-point cocircular group and asserts byte-identical `f64` output. The face actually used is chosen by a canonical, site-identity-keyed rule (lexicographically smallest sorted `VertexId` triple), not `FaceId`/scan order — matters once magnitude drops below the exact-computation floor (below), where the "any member gives the same answer" argument no longer strictly holds. |
+| An exactly collinear defining face (`d` exactly zero) | `Err(VoronoiGeometryError::NonFiniteCircumcenter)` — not expected to be reachable from a valid `Triangulation2` (a genuine Delaunay face always has `orient2d != Sign::Zero`), checked explicitly rather than trusted, matching ADR-008's posture that `validate_topology()` is a test-only diagnostic, never a construction-time invariant a public method may assume. |
+| A face thin enough that its true (finite, well-defined) circumradius overflows `f64` | `Err(VoronoiGeometryError::NonFiniteCircumcenter)`, never a panic, never a silently wrong large-magnitude coordinate. Unlike `line_intersection`, whose overflow is purely an input-magnitude ceiling fixable by rescaling, this failure mode is driven by the triangle's *aspect ratio*, not its coordinates' magnitude — bounded input coordinates can still produce an unbounded true circumcenter as the triangle approaches collinear, and rescaling cannot fix it (see `docs/numerical-model.md`'s Phase 6 section for the concrete `L=1e75, h=1e-170` reproduction, chosen to sit comfortably above the exact-computation floor below, not accidentally within it). |
+| `Bounded` edge, both endpoints' circumcenters representable | `Ok(Segment { start, end })`, matching `vertex_point`'s own output for those same two vertices exactly. |
+| `Bounded` edge, either endpoint's circumcenter overflows | `Err`, propagated — no partial `Segment` with one real and one non-representable endpoint. |
+| `Unbounded` edge | `Ok(Ray { origin, direction })` — `origin` from the one finite vertex's `vertex_point` (same failure/propagation as above); `direction` is derived from the boundary Delaunay edge via an `orient2d`-based sign choice (no division, always computable whenever `origin` is), confirmed to point away from the edge's incident face's third vertex via an independently re-derived exact side-test, not a floating comparison. Deliberately **not normalized to unit length** — this crate has no `sqrt`/normalize anywhere; a caller wanting a unit direction normalizes it themselves. |
+| Coordinate magnitude below the exact-computation floor | `docs/numerical-model.md`'s Phase 6 section: measured (not assumed) safe down through `2^-335` (`~1.4e-101`) against the independent oracle — identical to `line_intersection`'s own measured floor, consistent with both constructions sharing the same degree-3-numerator/degree-2-denominator shape. |
+
 ## Algorithm-level tie-breaking (not yet applicable)
 
 Polygon Boolean (Phase 6) has cases with more than one topologically valid

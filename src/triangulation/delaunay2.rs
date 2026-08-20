@@ -94,6 +94,17 @@ impl Triangulation2 {
             .map(|(i, &p)| (VertexId(i as u32), p))
     }
 
+    /// `v`'s coordinate. Internal-only (`pub(super)`, visible throughout
+    /// `triangulation` and its submodules) direct single-vertex lookup --
+    /// no public equivalent exists since no caller outside this module
+    /// tree has needed one yet; `vertices()` above is the public surface.
+    /// Added for `voronoi::Voronoi2::vertex_point`/`edge_geometry`
+    /// (ADR-009), which need a handful of individual coordinates per call,
+    /// not the full iterator.
+    pub(super) fn vertex_point(&self, v: VertexId) -> Point2 {
+        self.vertices[v.raw() as usize]
+    }
+
     /// Every undirected edge's id.
     pub fn edges(&self) -> impl Iterator<Item = EdgeId> + '_ {
         (0..self.edges.len()).map(|i| EdgeId(i as u32))

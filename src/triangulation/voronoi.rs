@@ -1,17 +1,20 @@
-//! Voronoi diagram topology: the dual of a [`Triangulation2`], built
-//! without generating any Voronoi coordinates.
+//! Voronoi diagram topology and geometry: the dual of a
+//! [`Triangulation2`].
 //!
-//! Phase 7A (ADR-007) built the internal data model, the [`voronoi2`]
-//! constructor, and an internal validator. Phase 7B adds the public query
-//! API below (`cells`, `vertices`, `edges`, and the accessors on each).
-//! Still no coordinates (circumcenters), clipping, nearest-neighbor, or
-//! ordered `cell_edges` walk -- those remain later phases. See
-//! `docs/adr/ADR-007-voronoi-diagram-topology.md` for the full design and
-//! the correctness argument this module implements.
+//! ADR-007 (0.5.0) built the internal data model, the [`voronoi2`]
+//! constructor, an internal validator, the public query API (`cells`,
+//! `vertices`, `edges`, and the accessors on each), and the ordered
+//! `cell_edges` boundary walk -- topology only, no coordinates. ADR-009
+//! (0.7.0) adds the geometry layer on top: [`Voronoi2::vertex_point`]
+//! (circumcenters) and [`Voronoi2::edge_geometry`] (segments/rays). See
+//! `docs/adr/ADR-007-voronoi-diagram-topology.md` and
+//! `docs/adr/ADR-009-voronoi-geometry.md` for the full design and
+//! correctness arguments this module implements.
 
 use super::delaunay2::Triangulation2;
 use super::ids::{EdgeId, FaceId, VertexId};
-use crate::predicates::{Sign, incircle};
+use crate::predicates::{Sign, circumcenter, incircle, orient2d};
+use crate::primitives::{Point2, Vector2};
 
 /// A Voronoi cell, identified with the [`VertexId`] of the Delaunay site
 /// it surrounds -- a true bijection, so no separate cell table is kept.
@@ -80,14 +83,56 @@ pub struct VoronoiEdge {
     pub kind: VoronoiEdgeKind,
 }
 
-/// A 2D Voronoi diagram's topology: the dual of a [`Triangulation2`],
-/// owned by value (no lifetime parameter), matching
+/// Why [`Voronoi2::vertex_point`]/[`Voronoi2::edge_geometry`] couldn't
+/// produce a coordinate (ADR-009).
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoronoiGeometryError {
+    /// The true circumcenter is not representable as a finite [`Point2`]
+    /// -- either the defining face is exactly collinear (no circumcircle
+    /// exists at all; not expected to be reachable from a valid
+    /// [`Triangulation2`], checked rather than trusted), or the face is
+    /// thin enough that its true, finite, well-defined circumradius
+    /// overflows `f64`'s representable range. Never a `NaN`/`Infinity`
+    /// leaking into a `Point2`.
+    NonFiniteCircumcenter,
+}
+
+/// The actual geometry of a [`VoronoiEdge`] (ADR-009): a bounded segment
+/// between two Voronoi vertex coordinates, or an unbounded ray from one.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VoronoiEdgeGeometry {
+    /// A finite segment between two Voronoi vertex coordinates.
+    Segment {
+        /// The segment's first endpoint.
+        start: Point2,
+        /// The segment's second endpoint.
+        end: Point2,
+    },
+    /// An infinite ray from `origin` in `direction`.
+    Ray {
+        /// The ray's single finite endpoint.
+        origin: Point2,
+        /// The ray's outward direction. **Not normalized** -- an
+        /// unnormalized vector, each component a single correctly-rounded
+        /// `f64` coordinate difference (not a fully exact one -- see
+        /// `docs/adr/ADR-009-voronoi-geometry.md`'s "Determining the ray
+        /// direction" section). This crate has no `sqrt`/normalize
+        /// anywhere; a caller wanting a unit direction normalizes it
+        /// themselves.
+        direction: Vector2,
+    },
+}
+
+/// A 2D Voronoi diagram: the dual of a [`Triangulation2`], owned by value
+/// (no lifetime parameter), matching
 /// [`super::ConstrainedTriangulation2`]'s precedent.
 ///
-/// Carries no coordinates for its own vertices -- only which cells,
-/// vertices, and edges exist and how they connect (query API below).
-/// Circumcenter computation and clipping are a later phase (ADR-007
-/// Phase 7C).
+/// Topology (which cells/vertices/edges exist and how they connect) is
+/// available unconditionally via the query API below. Geometry
+/// (`vertex_point`/`edge_geometry`, ADR-009) is fallible and computed on
+/// demand, not cached -- see those methods' own doc comments.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Voronoi2 {
     delaunay: Triangulation2,
@@ -510,6 +555,157 @@ impl Voronoi2 {
         }
 
         result.into_iter()
+    }
+
+    /// The correctly-rounded coordinate of `vertex` -- the circumcenter of
+    /// its merged Delaunay face group (ADR-009). `Err` only when the true
+    /// circumcenter is not representable as a finite [`Point2`] (an
+    /// extremely thin/near-degenerate defining face) -- never a panic,
+    /// never a silently wrong large-magnitude coordinate.
+    ///
+    /// Recomputed on demand each call, not cached -- matches
+    /// `neighboring_cells`/`cell_is_unbounded`'s existing "derive on
+    /// demand, don't pre-index" precedent.
+    ///
+    /// For a cocircular-merged group (2+ faces), every member face shares
+    /// exactly one true circumcenter (three non-collinear points determine
+    /// a circle uniquely), so the correctly-rounded result is the same
+    /// regardless of which member face computes it -- within this
+    /// construction's verified-exact magnitude range. The member actually
+    /// used is chosen by a canonical, site-identity-keyed rule (the
+    /// lexicographically smallest sorted `VertexId` triple among the
+    /// group's faces), not `FaceId`/scan order, so the choice stays
+    /// deterministic and reproducible even below that range too. See
+    /// `docs/adr/ADR-009-voronoi-geometry.md`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kika::{Point2, delaunay2, voronoi2};
+    ///
+    /// let pts = [
+    ///     Point2::new(0.0, 0.0).unwrap(),
+    ///     Point2::new(4.0, 0.0).unwrap(),
+    ///     Point2::new(0.0, 4.0).unwrap(),
+    /// ];
+    /// let voronoi = voronoi2(delaunay2(&pts));
+    /// let vertex = voronoi.vertices().next().unwrap();
+    ///
+    /// // The right triangle's circumcenter is its hypotenuse's midpoint.
+    /// let p = voronoi.vertex_point(vertex).unwrap();
+    /// assert_eq!((p.x(), p.y()), (2.0, 2.0));
+    /// ```
+    pub fn vertex_point(&self, vertex: VoronoiVertexId) -> Result<Point2, VoronoiGeometryError> {
+        let face = self.canonical_representative_face(vertex);
+        let [a, b, c] = self.delaunay.face_vertices(face);
+        let (pa, pb, pc) = (
+            self.delaunay.vertex_point(a),
+            self.delaunay.vertex_point(b),
+            self.delaunay.vertex_point(c),
+        );
+        circumcenter(pa, pb, pc).ok_or(VoronoiGeometryError::NonFiniteCircumcenter)
+    }
+
+    /// The actual geometry of `edge`: a bounded segment between two
+    /// Voronoi vertex coordinates, or a ray from one. `Err` propagates
+    /// from [`Self::vertex_point`] on the endpoint(s) involved -- no
+    /// partial `Segment` with one real and one non-representable endpoint.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kika::{Point2, VoronoiEdgeGeometry, delaunay2, voronoi2};
+    ///
+    /// let pts = [
+    ///     Point2::new(0.0, 0.0).unwrap(),
+    ///     Point2::new(4.0, 0.0).unwrap(),
+    ///     Point2::new(0.0, 4.0).unwrap(),
+    /// ];
+    /// let voronoi = voronoi2(delaunay2(&pts));
+    /// for edge in voronoi.edges() {
+    ///     match voronoi.edge_geometry(edge).unwrap() {
+    ///         VoronoiEdgeGeometry::Ray { origin, .. } => {
+    ///             assert_eq!((origin.x(), origin.y()), (2.0, 2.0));
+    ///         }
+    ///         VoronoiEdgeGeometry::Segment { .. } => {
+    ///             unreachable!("a single triangle's Voronoi diagram has no bounded edge")
+    ///         }
+    ///         // `VoronoiEdgeGeometry` is `#[non_exhaustive]`.
+    ///         _ => unreachable!(),
+    ///     }
+    /// }
+    /// ```
+    pub fn edge_geometry(
+        &self,
+        edge: VoronoiEdgeId,
+    ) -> Result<VoronoiEdgeGeometry, VoronoiGeometryError> {
+        match self.edges[edge.0 as usize].kind {
+            VoronoiEdgeKind::Bounded { vertices: [v0, v1] } => {
+                let start = self.vertex_point(v0)?;
+                let end = self.vertex_point(v1)?;
+                Ok(VoronoiEdgeGeometry::Segment { start, end })
+            }
+            VoronoiEdgeKind::Unbounded { finite_vertex } => {
+                let origin = self.vertex_point(finite_vertex)?;
+                let source_edge = self.edges[edge.0 as usize].source_edge;
+                let (u, v) = self.delaunay.edge_vertices(source_edge);
+                let face = self
+                    .delaunay
+                    .adjacent_faces(source_edge)
+                    .into_iter()
+                    .flatten()
+                    .next()
+                    .expect(
+                        "an Unbounded Voronoi edge's source is a boundary Delaunay edge, \
+                         which always has exactly 1 incident face",
+                    );
+                let w = third_vertex(&self.delaunay, face, u, v);
+                let direction = self.outward_ray_direction(u, v, w);
+                Ok(VoronoiEdgeGeometry::Ray { origin, direction })
+            }
+        }
+    }
+
+    /// The canonical representative face for `vertex`'s group: the member
+    /// face whose 3 vertices, sorted by `VertexId::raw()`, are
+    /// lexicographically smallest -- a site-identity-keyed choice
+    /// (ADR-007's own canonical-id discipline, applied one layer deeper:
+    /// see `docs/adr/ADR-009-voronoi-geometry.md`'s "Canonical-per-group
+    /// circumcenter"), not `FaceId`/scan order.
+    fn canonical_representative_face(&self, vertex: VoronoiVertexId) -> FaceId {
+        self.group_faces[vertex.0 as usize]
+            .iter()
+            .copied()
+            .min_by_key(|&f| {
+                let mut verts = self.delaunay.face_vertices(f).map(VertexId::raw);
+                verts.sort_unstable();
+                verts
+            })
+            .expect("a VoronoiVertexId's group always has at least one member face")
+    }
+
+    /// The outward (away from `w`) perpendicular direction of Delaunay
+    /// hull edge `(u, v)`, `w` being that edge's one incident face's third
+    /// vertex. Each component of the edge vector is a single
+    /// correctly-rounded `f64` coordinate difference (`Point2 - Point2`);
+    /// the perpendicular rotation and `orient2d`-based sign selection
+    /// introduce no further error. See
+    /// `docs/adr/ADR-009-voronoi-geometry.md`'s "Determining the ray
+    /// direction" section.
+    fn outward_ray_direction(&self, u: VertexId, v: VertexId, w: VertexId) -> Vector2 {
+        let pu = self.delaunay.vertex_point(u);
+        let pv = self.delaunay.vertex_point(v);
+        let pw = self.delaunay.vertex_point(w);
+
+        let edge = pv - pu;
+        let perp = Vector2::new_unchecked(-edge.y(), edge.x());
+        let candidate = pu + perp;
+
+        if orient2d(pu, pv, pw) == orient2d(pu, pv, candidate) {
+            -perp
+        } else {
+            perp
+        }
     }
 
     /// `v`'s index within `face`'s 3 vertices. Panics only if `face`
@@ -1055,6 +1251,181 @@ mod tests {
         assert_eq!(canonical_groups(&fan_0), canonical_groups(&fan_6));
         assert_eq!(canonical_edges(&fan_0), canonical_edges(&fan_3));
         assert_eq!(canonical_edges(&fan_0), canonical_edges(&fan_6));
+    }
+
+    // -- Geometry (ADR-009): vertex_point/edge_geometry --
+
+    #[test]
+    fn vertex_point_matches_hand_computed_circumcenter() {
+        let pts = vec![pt(0.0, 0.0), pt(4.0, 0.0), pt(0.0, 4.0)];
+        let v = voronoi2(delaunay2(&pts));
+        let vertex = v.vertices().next().unwrap();
+        let p = v.vertex_point(vertex).unwrap();
+        assert_eq!((p.x(), p.y()), (2.0, 2.0));
+    }
+
+    /// The central claim ADR-009's "Canonical-per-group circumcenter"
+    /// section makes: every member face of a cocircular-merged group
+    /// shares one true circumcenter (three non-collinear points determine
+    /// a circle uniquely), so the correctly-rounded output is
+    /// byte-identical regardless of which member face computes it. This
+    /// bypasses `canonical_representative_face`'s own pick entirely,
+    /// computing directly from *every* member face via the `pub(crate)`
+    /// `circumcenter` construction, to test the underlying mathematical
+    /// claim itself -- not just that the canonical-pick mechanism is
+    /// deterministic (which would be a weaker, near-vacuous test).
+    #[test]
+    fn cocircular_group_circumcenter_identical_regardless_of_member_face() {
+        let pts = cocircular_lattice_points(8);
+        let v = voronoi2(assemble_triangulation(pts, fan_from(8, 0)));
+        assert_eq!(v.group_faces.len(), 1, "all 8 points share one circle");
+
+        let faces = &v.group_faces[0];
+        assert!(
+            faces.len() >= 3,
+            "expected a genuinely multi-face cocircular group"
+        );
+
+        let results: Vec<Point2> = faces
+            .iter()
+            .map(|&f| {
+                let [a, b, c] = v.delaunay.face_vertices(f);
+                circumcenter(
+                    v.delaunay.vertex_point(a),
+                    v.delaunay.vertex_point(b),
+                    v.delaunay.vertex_point(c),
+                )
+                .expect("a fan triangle of cocircular points is never collinear")
+            })
+            .collect();
+
+        let first = results[0];
+        for &r in &results[1..] {
+            assert_eq!(
+                (r.x(), r.y()),
+                (first.x(), first.y()),
+                "circumcenter must be identical regardless of which member face computed it"
+            );
+        }
+    }
+
+    /// The thin-triangle overflow case (`docs/adr/ADR-009-voronoi-geometry.md`)
+    /// must surface as a typed `Err` through the *public* API, not just
+    /// from the internal `circumcenter` construction directly -- confirms
+    /// `vertex_point`/`edge_geometry` propagate it correctly rather than
+    /// unwrapping/panicking.
+    #[test]
+    fn thin_triangle_vertex_point_and_edge_geometry_return_err_not_panic() {
+        // See `predicates::constructions::circumcenter`'s own
+        // `thin_triangle_overflow_returns_none_not_a_panic` for why this
+        // specific L/h pair (comfortably above the exact-product
+        // representability floor, confirmed a genuine non-degenerate
+        // triangle) rather than a subnormal-scale one.
+        let l = 1e75;
+        let h = 1e-170;
+        let pts = vec![pt(0.0, 0.0), pt(l, 0.0), pt(l / 2.0, h)];
+        let v = voronoi2(delaunay2(&pts));
+        let vertex = v.vertices().next().unwrap();
+        assert_eq!(
+            v.vertex_point(vertex),
+            Err(VoronoiGeometryError::NonFiniteCircumcenter)
+        );
+        for edge in v.edges() {
+            assert_eq!(
+                v.edge_geometry(edge),
+                Err(VoronoiGeometryError::NonFiniteCircumcenter)
+            );
+        }
+    }
+
+    /// `edge_geometry`'s `Segment` case: both endpoints of a genuine
+    /// interior (`Bounded`) Voronoi edge must match `vertex_point`'s own
+    /// output for those same two vertices exactly.
+    #[test]
+    fn edge_geometry_segment_endpoints_match_vertex_point() {
+        // 4 generic-position points guaranteed to produce at least one
+        // interior (Bounded) edge: a square's diagonal split, perturbed
+        // off cocircularity so the diagonal survives as a real edge
+        // rather than being excluded as a same-group artifact.
+        let pts = vec![
+            pt(0.0, 0.0),
+            pt(4.0, 0.0),
+            pt(4.0, 4.0),
+            pt(0.0, 4.1), // perturbed: not exactly cocircular with the other 3
+        ];
+        let v = voronoi2(delaunay2(&pts));
+        let mut saw_bounded = false;
+        for edge in v.edges() {
+            if let VoronoiEdgeKind::Bounded { vertices } = *v.edge_kind(edge) {
+                saw_bounded = true;
+                let expected_start = v.vertex_point(vertices[0]).unwrap();
+                let expected_end = v.vertex_point(vertices[1]).unwrap();
+                match v.edge_geometry(edge).unwrap() {
+                    VoronoiEdgeGeometry::Segment { start, end } => {
+                        assert_eq!(
+                            (start.x(), start.y()),
+                            (expected_start.x(), expected_start.y())
+                        );
+                        assert_eq!((end.x(), end.y()), (expected_end.x(), expected_end.y()));
+                    }
+                    VoronoiEdgeGeometry::Ray { .. } => panic!("Bounded edge produced a Ray"),
+                }
+            }
+        }
+        assert!(
+            saw_bounded,
+            "expected at least one Bounded edge in this fixture"
+        );
+    }
+
+    /// `edge_geometry`'s `Ray` case: `direction` must point to the
+    /// opposite side of the boundary Delaunay edge `(u, w)` from that
+    /// edge's incident face's third vertex -- an exact `orient2d`-based
+    /// check independently re-derived here (not just re-running the
+    /// implementation's own side-test), and `origin` must match
+    /// `vertex_point`.
+    #[test]
+    fn edge_geometry_ray_points_away_from_third_vertex() {
+        let pts = vec![pt(0.0, 0.0), pt(4.0, 0.0), pt(0.0, 4.0)];
+        let v = voronoi2(delaunay2(&pts));
+
+        for edge in v.edges() {
+            let VoronoiEdgeKind::Unbounded { finite_vertex } = *v.edge_kind(edge) else {
+                continue;
+            };
+            let expected_origin = v.vertex_point(finite_vertex).unwrap();
+            let source_edge = v.dual_delaunay_edge(edge);
+            let (u, w) = v.delaunay.edge_vertices(source_edge);
+            let face = v
+                .delaunay
+                .adjacent_faces(source_edge)
+                .into_iter()
+                .flatten()
+                .next()
+                .expect("a boundary Delaunay edge has exactly 1 incident face");
+            let third = third_vertex(&v.delaunay, face, u, w);
+
+            let pu = v.delaunay.vertex_point(u);
+            let pw = v.delaunay.vertex_point(w);
+            let pthird = v.delaunay.vertex_point(third);
+
+            match v.edge_geometry(edge).unwrap() {
+                VoronoiEdgeGeometry::Ray { origin, direction } => {
+                    assert_eq!(
+                        (origin.x(), origin.y()),
+                        (expected_origin.x(), expected_origin.y())
+                    );
+                    let probe = origin + direction;
+                    assert_ne!(
+                        orient2d(pu, pw, pthird),
+                        orient2d(pu, pw, probe),
+                        "ray direction must point to the opposite side of the boundary \
+                         edge from the triangle's third vertex"
+                    );
+                }
+                VoronoiEdgeGeometry::Segment { .. } => panic!("Unbounded edge produced a Segment"),
+            }
+        }
     }
 
     #[test]

@@ -31,7 +31,8 @@ pub use primitives::{
 };
 pub use triangulation::{
     CdtError, ConstrainedTriangulation2, EdgeId, FaceId, PointLocation, PolygonTriangulationError,
-    Triangulation2, VertexId, Voronoi2, VoronoiCellId, VoronoiEdge, VoronoiEdgeId, VoronoiEdgeKind,
-    VoronoiVertexId, constrained_delaunay2, delaunay2, triangulate_polygon,
-    triangulate_polygon_with_holes, validate_cdt_topology, voronoi2,
+    Triangulation2, VertexId, Voronoi2, VoronoiCellId, VoronoiEdge, VoronoiEdgeGeometry,
+    VoronoiEdgeId, VoronoiEdgeKind, VoronoiGeometryError, VoronoiVertexId, constrained_delaunay2,
+    delaunay2, triangulate_polygon, triangulate_polygon_with_holes, validate_cdt_topology,
+    voronoi2,
 };
