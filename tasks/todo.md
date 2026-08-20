@@ -1,5 +1,28 @@
 # Todo
 
+## Done (post-0.6.0: ROADMAP staged plan through 1.0.0, point_location fuzz target)
+
+- [x] `ROADMAP.md` (internal, gitignored) staged-plan revised: 0.7.0
+      Voronoi geometry (circumcenters/rays for the topology-only Voronoi
+      diagram 0.5.0 shipped) and 0.8.0 exact nearest-site query inserted
+      ahead of the arrangement kernel (now 0.9.0, split into 4 phases)
+      and polygon Boolean (now 0.10.0); 2D API hardening renumbered to
+      0.11.x with an expanded checklist; 1.0.0 criteria expanded to name
+      Voronoi geometry/nearest-site query/arrangement explicitly. Fixed
+      one stale claim while merging in the new list: "wasm test
+      execution is build-only" — actually shipped (Node.js, 0.4.0);
+      narrowed the still-open item to browser execution specifically.
+      No commit needed (file is gitignored).
+- [x] `fuzz/fuzz_targets/point_location.rs` (commit `b8edad5`) — exercises
+      `Triangulation2::locate` across many small-integer-grid point
+      clouds and query points, checking the same postcondition
+      `tests/differential/locate.rs` verifies against an independent
+      oracle at small fixed scale, but against the crate's own
+      (already-verified) primitives at fuzz scale instead. Matches the
+      `voronoi_topology_validator` precedent (added the same way, same
+      shape, after 0.5.0). Ran clean: 65,792 executions / 60s, no
+      crashes. fmt/clippy clean on the fuzz crate.
+
 ## Done (ADR-008 0.6.0: Triangulation2::locate, Round 1 + 2)
 
 - [x] **Round 1** (`2d994eb`, `2364f6e`, `e1bb9ba`, pushed, CI green):
