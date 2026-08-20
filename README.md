@@ -12,11 +12,11 @@ robust 2D/3D computational geometry: exact predicates with adaptive/exact
 fallback arithmetic, and — in later phases — triangulation, hull, and
 polygon algorithms built on top of that foundation.
 
-Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.6.0,
+Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.7.0,
 Kika is a robust 2D kernel with exact predicates, 2D convex hull, Delaunay
 triangulation, constrained Delaunay triangulation (narrow scope),
-simple-polygon triangulation with or without holes, Voronoi diagram
-topology (no vertex coordinates yet), and point location — see
+simple-polygon triangulation with or without holes, a Voronoi diagram
+(topology and vertex/edge geometry), and point location — see
 [Implemented today](#implemented-today) and the
 [Maturity](#maturity) table below for exactly what that does and doesn't
 cover. No stability guarantees yet. See [Roadmap](#roadmap) for what
@@ -141,7 +141,12 @@ in pure Rust, that's what Phase 1 of Kika is.
   not a single "correct" answer; the deterministic tie-break rule is
   documented in [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)
   alongside every other degenerate case (collinear boundary points, points
-  exactly on an existing edge).
+  exactly on an existing edge). **Known issue (0.7.0, unfixed):** 3 input
+  points with extreme, widely mixed coordinate magnitude (e.g. one
+  coordinate near `4e304`) can panic — `orient2d` itself returns
+  permutation-inconsistent answers at that magnitude, breaking an
+  antisymmetry assumption this function's own degenerate-input handling
+  relies on. See `CHANGELOG.md`'s 0.7.0 entry and `tasks/todo.md`.
 * `Triangulation2`'s adjacency structure — `VertexId`/`EdgeId`/`FaceId`
   and `vertices`/`edges`/`faces`/`edge_vertices`/`adjacent_faces`/
   `face_vertices`/`neighboring_faces`/`boundary_edges`, a **static,
@@ -183,17 +188,17 @@ in pure Rust, that's what Phase 1 of Kika is.
   panic. `Polygon2::relation_to`/`PointPolygonRelation` (an exact
   point-in-polygon predicate, new alongside this) backs the hole-containment
   check.
-* `Voronoi2` / `voronoi2` — a topology-only Voronoi diagram (0.5.0), the
-  dual of an existing `Triangulation2`: no vertex coordinates
-  (circumcenters), clipping, or nearest-neighbor query yet, deliberately
-  deferred. Delaunay's own cocircular tie-break (above) can split a
-  cocircular point cluster across more than one triangle; `voronoi2`
-  merges the affected faces via union-find keyed on
+* `Voronoi2` / `voronoi2` — a Voronoi diagram, the dual of an existing
+  `Triangulation2`: topology (0.5.0) plus vertex/edge geometry (0.7.0).
+  Clipping and nearest-neighbor query are still not implemented,
+  deliberately deferred. Delaunay's own cocircular tie-break (above) can
+  split a cocircular point cluster across more than one triangle;
+  `voronoi2` merges the affected faces via union-find keyed on
   `incircle(...) == Sign::Zero` so that arbitrary choice never leaks out
   as a spurious extra Voronoi vertex or edge — verified by feeding the
   *same* cocircular point set through multiple different triangulations
-  and checking for identical, not merely isomorphic, output. Query API:
-  `cells`/`vertices`/`edges`, `cell_site`, `neighboring_cells`,
+  and checking for identical, not merely isomorphic, output. Topology
+  query API: `cells`/`vertices`/`edges`, `cell_site`, `neighboring_cells`,
   `cell_is_unbounded`, `edge_cells`, `edge_kind`, `dual_delaunay_edge`,
   `vertex_delaunay_faces`, and `cell_edges` — an ordered counterclockwise
   walk of a cell's boundary (closed cycle for a bounded/interior-site
@@ -201,6 +206,24 @@ in pure Rust, that's what Phase 1 of Kika is.
   cell), built entirely from `Triangulation2`'s existing face adjacency,
   no new data model. See
   [`docs/adr/ADR-007-voronoi-diagram-topology.md`](docs/adr/ADR-007-voronoi-diagram-topology.md).
+
+  `vertex_point`/`edge_geometry` (0.7.0) add actual coordinates on top:
+  `vertex_point` is the correctly-rounded (ADR-004-style) circumcenter of
+  a Voronoi vertex's merged Delaunay face group — for a cocircular-merged
+  group, every member face shares one true circumcenter, so the result is
+  provably identical regardless of which member face computes it, chosen
+  by a canonical site-identity-keyed rule, not construction order.
+  `edge_geometry` returns a bounded `Segment` or an unbounded `Ray` (an
+  unnormalized outward direction — this crate has no `sqrt`/normalize
+  anywhere), guaranteed finite and non-zero for any two distinct finite
+  Delaunay vertices, including opposite-sign near-`f64::MAX` coordinates.
+  `Err(VoronoiGeometryError::NonFiniteCircumcenter)` when a face's true
+  circumcenter isn't representable (unlike `line_intersection`, this
+  isn't fixable by rescaling — a triangle's aspect ratio, not its
+  coordinates' magnitude, drives this overflow); `Err(InvalidTopology)`
+  for an internal invariant this crate's own construction never
+  violates. Never a panic either way. See
+  [`docs/adr/ADR-009-voronoi-geometry.md`](docs/adr/ADR-009-voronoi-geometry.md).
 * `Triangulation2::locate` / `PointLocation` — point location (0.6.0):
   `PointLocation::{Vertex(VertexId), Edge(EdgeId), Face(FaceId), Outside}`,
   a closed enum (not `#[non_exhaustive]` — its 4 variants are exactly the
@@ -222,11 +245,11 @@ intersections, polygon, convex hull, and Delaunay triangulation above
 complete Phases 2 through 4. `segment_intersection`'s `Proper`-crossing
 point construction (below) completes Phase 5, and the adjacency structure,
 constrained Delaunay triangulation, and simple-polygon triangulation above
-complete Phase 6A-6D. Voronoi diagram *topology* (0.5.0) and point
-location (0.6.0) are both implemented (above); everything past this
-point — polygon Boolean, a spatial index/walking locator,
-nearest-neighbor query, and Voronoi vertex *coordinates* (circumcenters)
-specifically — is later, see [Roadmap](#roadmap).
+complete Phase 6A-6D. The Voronoi diagram, both *topology* (0.5.0) and
+vertex/edge *geometry* (0.7.0), and point location (0.6.0) are all
+implemented (above); everything past this point — polygon Boolean, a
+spatial index/walking locator, nearest-neighbor query, and Voronoi
+clipping specifically — is later, see [Roadmap](#roadmap).
 
 * `predicates::line_intersection` (used internally by
   `segment_intersection`'s `Proper` case) — the first exact/certified
@@ -323,8 +346,8 @@ let t = triangulate_polygon(&square).unwrap();
 assert_eq!(t.len(), square.len() - 2);
 ```
 
-Voronoi diagram topology — the dual of a `Triangulation2`, no vertex
-coordinates (also doctested, as
+Voronoi diagram topology — the dual of a `Triangulation2` (also
+doctested, as
 [`voronoi2`'s own doc example](src/triangulation/voronoi.rs)):
 
 ```rust
@@ -347,6 +370,26 @@ for edge in voronoi.edges() {
         VoronoiEdgeKind::Unbounded { .. }
     ));
 }
+```
+
+Voronoi diagram geometry — actual coordinates on top of the topology
+above (also doctested, as
+[`vertex_point`'s own doc example](src/triangulation/voronoi.rs)):
+
+```rust
+use kika::{Point2, delaunay2, voronoi2};
+
+let pts = [
+    Point2::new(0.0, 0.0).unwrap(),
+    Point2::new(4.0, 0.0).unwrap(),
+    Point2::new(0.0, 4.0).unwrap(),
+];
+let voronoi = voronoi2(delaunay2(&pts));
+let vertex = voronoi.vertices().next().unwrap();
+
+// The right triangle's circumcenter is its hypotenuse's midpoint.
+let p = voronoi.vertex_point(vertex).unwrap();
+assert_eq!((p.x(), p.y()), (2.0, 2.0));
 ```
 
 Point location — `O(F)`, no spatial index (also doctested, as
@@ -393,7 +436,8 @@ More, runnable via `cargo run --example <name>`, in [`examples/`](examples/):
 * [`polygon_triangulation_with_holes`](examples/polygon_triangulation_with_holes.rs) —
   a boundary with two separate holes cut out
 * [`voronoi`](examples/voronoi.rs) — a cocircular square plus an
-  off-center interior point, bounded vs. unbounded cells
+  off-center interior point, bounded vs. unbounded cells, plus (0.7.0)
+  each cell edge's actual segment/ray geometry
 * [`locate`](examples/locate.rs) — vertex/edge/face/outside
   classification, including a hole's interior vs. its boundary
 
@@ -417,9 +461,10 @@ above.
 Pre-1.0, no semver guarantees. The public `Kernel` trait design described
 in some computational-geometry libraries (CGAL included) is explicitly not
 being finalized yet — see ADR-004. As of 0.3.0, the public `Result`-style
-error enums (`KikaError`, `CdtError`, `PolygonTriangulationError`) are
-`#[non_exhaustive]`, so a future variant addition won't break a downstream
-`match` that already has a wildcard arm — see `CHANGELOG.md`.
+error enums (`KikaError`, `CdtError`, `PolygonTriangulationError`, and as
+of 0.7.0 `VoronoiGeometryError`) are `#[non_exhaustive]`, so a future
+variant addition won't break a downstream `match` that already has a
+wildcard arm — see `CHANGELOG.md`.
 
 ## Maturity
 
@@ -432,7 +477,7 @@ error enums (`KikaError`, `CdtError`, `PolygonTriangulationError`) are
 | Triangulation adjacency (vertex/edge/face queries) | Implemented — `VertexId`/`EdgeId`/`FaceId`, neighbor/boundary queries, internal topology validator (ADR-006) |
 | Constrained Delaunay | Implemented — narrow scope: non-crossing constraints between existing vertices only, no Steiner points (Phase 6C) |
 | Simple polygon triangulation | Implemented — no Steiner points, self-intersecting input rejected (Phase 6D); holes supported (0.4.0, `triangulate_polygon_with_holes`) — nested holes out of scope, typed error |
-| Voronoi diagram | Implemented — topology only (0.5.0): cells/vertices/edges, ordered `cell_edges()` boundary walk; no vertex coordinates (circumcenters), clipping, or nearest-neighbor query yet |
+| Voronoi diagram | Implemented — topology (0.5.0): cells/vertices/edges, ordered `cell_edges()` boundary walk; vertex/edge geometry (0.7.0): `vertex_point`/`edge_geometry`, correctly-rounded circumcenters, unnormalized ray directions; no clipping or nearest-neighbor query yet |
 | Point location | Implemented — `Triangulation2::locate` (0.6.0), `O(F)` linear scan, verified against an independent BigRational oracle; no spatial index/walking locator or nearest-neighbor query yet |
 | Polygon Boolean | Not implemented — exactness model still open, see ADR-004 |
 | 3D mesh operations | Not implemented |
@@ -452,13 +497,13 @@ Phase 1 (robust predicates), Phase 2 (2D primitives and intersections),
 Phase 3 (2D convex hull), Phase 4 (2D Delaunay triangulation), Phase 5
 (certified/exact constructions — an exact `Proper` segment-intersection
 point), Phase 6A-6D (triangulation adjacency, narrow-scope constrained
-Delaunay, narrow-scope simple-polygon triangulation), Voronoi diagram
-*topology* (0.5.0), and point location (0.6.0) are complete. Not yet
-implemented: Voronoi vertex *coordinates* (circumcenters), clipping, and
+Delaunay, narrow-scope simple-polygon triangulation), the Voronoi diagram
+— *topology* (0.5.0) and vertex/edge *geometry* (0.7.0) — and point
+location (0.6.0) are complete. Not yet implemented: Voronoi clipping and
 nearest-neighbor query; a spatial index/walking locator for `locate`;
 polygon/mesh Boolean; vertex deletion; Delaunay refinement; mesh repair;
 surface reconstruction; point-cloud processing. See
 [`tasks/todo.md`](tasks/todo.md) for the phased backlog and
 [`docs/release-checklist.md`](docs/release-checklist.md) for what's
-verified before each `crates.io`/GitHub release (0.2.0 through 0.5.0 have
-all shipped, 0.6.0 in preparation; see `CHANGELOG.md`).
+verified before each `crates.io`/GitHub release (0.2.0 through 0.7.0 have
+all shipped; see `CHANGELOG.md`).

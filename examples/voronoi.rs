@@ -1,13 +1,16 @@
 //! `cargo run --example voronoi`
 //!
-//! `Voronoi2` is topology-only: no vertex coordinates (circumcenters),
-//! just which cells, vertices, and edges exist and how they connect. The
-//! square's 4 corners are exactly cocircular -- `delaunay2` splits them
-//! into 2 triangles along an arbitrary diagonal, but `voronoi2` merges
-//! both triangles' circumcenters into a single Voronoi vertex rather than
-//! exposing that diagonal choice as a spurious extra vertex/edge.
+//! `Voronoi2` has both topology (which cells, vertices, and edges exist
+//! and how they connect) and, since 0.7.0, geometry (actual coordinates
+//! -- `vertex_point`/`edge_geometry`). The square's 4 corners are exactly
+//! cocircular -- `delaunay2` splits them into 2 triangles along an
+//! arbitrary diagonal, but `voronoi2` merges both triangles' circumcenters
+//! into a single Voronoi vertex rather than exposing that diagonal choice
+//! as a spurious extra vertex/edge -- and `vertex_point` returns that one
+//! shared, correctly-rounded circumcenter regardless of which triangle
+//! supplied it.
 
-use kika::{Point2, VoronoiEdgeKind, delaunay2, voronoi2};
+use kika::{Point2, VoronoiEdgeGeometry, VoronoiEdgeKind, delaunay2, voronoi2};
 
 fn main() {
     let pts = [
@@ -52,6 +55,24 @@ fn main() {
                 // (e.g. a degenerate 1-2-site Line case) must not break
                 // an existing match at compile time.
                 _ => println!("    (unrecognized edge kind)"),
+            }
+
+            // 0.7.0: the actual coordinates behind that topology. This
+            // fixture's magnitude is ordinary, so every circumcenter is
+            // representable -- `unwrap()` rather than handling
+            // `VoronoiGeometryError` here.
+            match voronoi.edge_geometry(*edge).unwrap() {
+                VoronoiEdgeGeometry::Segment { start, end } => {
+                    assert!(start.x().is_finite() && start.y().is_finite());
+                    assert!(end.x().is_finite() && end.y().is_finite());
+                    println!("      segment ({:?} -> {:?})", start, end);
+                }
+                VoronoiEdgeGeometry::Ray { origin, direction } => {
+                    assert!(origin.x().is_finite() && origin.y().is_finite());
+                    assert!(direction.x().is_finite() && direction.y().is_finite());
+                    println!("      ray (from {:?}, direction {:?})", origin, direction);
+                }
+                _ => println!("      (unrecognized edge geometry)"),
             }
         }
     }
