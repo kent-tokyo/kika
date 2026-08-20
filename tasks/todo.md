@@ -22,6 +22,51 @@
       `voronoi_topology_validator` precedent (added the same way, same
       shape, after 0.5.0). Ran clean: 65,792 executions / 60s, no
       crashes. fmt/clippy clean on the fuzz crate.
+- [x] `docs/degeneracy-policy.md` (commit `30ed670`) gained a point
+      location degeneracies section (vertex/edge/hole-boundary/
+      hole-interior hits), matching the table format the Voronoi section
+      already used.
+- [x] `benches/sanity.rs` (commit `124b1b5`) gained a `locate` sanity
+      check (n=100/300/1000, timing only, no correctness assertion
+      beyond what the existing test suite already covers — matching this
+      file's own catastrophic-regression-only precedent).
+- [x] All 4 of the above (`b8edad5`..`124b1b5`) are local commits only,
+      not yet pushed — same "local only, until the next round" pattern
+      the 0.5.0 `voronoi_topology_validator` fuzz-target follow-up used.
+      Re-verified together as of 2026-08-20 (this session): `cargo fmt
+      --check`, `clippy --all-targets --all-features -D warnings` (native
+      + `wasm32-unknown-unknown`), `cargo test --all-features` (native +
+      MSRV 1.85), `cargo +1.85 test --all-features`, `RUSTDOCFLAGS="-D
+      warnings" cargo doc --no-deps`, `wasm-pack test --node --release`
+      (10/10), `cargo deny check`, `cargo build --examples`, `cargo bench
+      --bench sanity` all pass on the current working tree. Pushing
+      remains its own explicit decision (see this file's "Deferred
+      pending explicit user approval" section and `ROADMAP.md`'s release
+      process note) — not done here.
+
+## Done (0.6.0 release: published)
+
+- [x] `v0.6.0` tag at `db6d04c967b61ea54aa045d9b01daca9d8710e34`
+      (`docs(changelog): fix 0.6.0 release date to 2026-08-20 (JST)`),
+      pushed; CI green on that push (run `32309643905`) and on the
+      `Publish` workflow_dispatch run immediately after (`32309825918`).
+      GitHub Release "Kika 0.6.0" published 2026-08-19T22:44:17Z.
+      crates.io confirmed via the actual API response (not just a
+      dry-run): `max_version`/`newest_version`/`default_version` all
+      `"0.6.0"`, not yanked. docs.rs build confirmed live (HTTP 200 at
+      `docs.rs/kika/0.6.0/kika/`).
+- [x] Re-verified directly against the published artifacts this session
+      (2026-08-20), not just re-reading the earlier release-checklist
+      run: downloaded crates.io source for `kika-0.6.0` confirmed free of
+      `.claude/`/`ROADMAP.md`; a fresh external fixture crate (`kika =
+      "0.6.0"` pulled from crates.io, not a path/git dependency) built
+      and ran `delaunay2`/`Triangulation2::locate` against the real
+      published crate, confirming both a `Vertex` hit and an `Outside`
+      miss classify correctly.
+- [x] Local `main` == `origin/main` == the `v0.6.0` tag's peeled commit,
+      all `db6d04c967b61ea54aa045d9b01daca9d8710e34`, confirmed via `git
+      ls-remote --tags origin` (peeled with `^{}`) and `git log
+      origin/main -1`.
 
 ## Done (ADR-008 0.6.0: Triangulation2::locate, Round 1 + 2)
 
