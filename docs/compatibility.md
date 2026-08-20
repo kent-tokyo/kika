@@ -1,7 +1,7 @@
 # Compatibility
 
-Status: Phase 1-5 complete; Phase 6A-6D complete. As of 0.7.0, shipped
-2026-08-20 (0.2.0 through 0.7.0 all released; 0.7.0 added
+Status: Phase 1-5 complete; Phase 6A-6D complete. As of 0.7.1, shipped
+2026-08-20 (0.2.0 through 0.7.1 all released; 0.7.0 added
 `Voronoi2::vertex_point`/`edge_geometry` — Voronoi vertex/edge geometry
 on top of 0.5.0's topology — see `CHANGELOG.md`), Kika is a robust 2D
 kernel with exact predicates, 2D convex hull, Delaunay triangulation,
@@ -12,16 +12,26 @@ table for exactly what each covers. Voronoi clipping, nearest-neighbor
 query, a spatial index/walking locator for `locate`, polygon Boolean,
 and later roadmap work not started, deliberately deferred.
 
-0.7.0 also shipped `fuzz/fuzz_targets/voronoi_geometry.rs`, which found
-(on its first run) a real, pre-existing panic in `delaunay2()` itself —
-`orient2d` can return permutation-inconsistent answers at extreme mixed
-coordinate magnitude, breaking an antisymmetry assumption `delaunay2()`
-relies on — unrelated to Voronoi geometry, not fixed in 0.7.0, tracked
-in `tasks/todo.md`. See `CHANGELOG.md`'s 0.7.0 "Known issues" entry.
+0.7.0 shipped `fuzz/fuzz_targets/voronoi_geometry.rs`, which found (on
+its first run) a real, pre-existing panic in `delaunay2()` itself —
+`orient2d` could return permutation-inconsistent answers at extreme
+mixed coordinate magnitude, breaking an antisymmetry assumption
+`delaunay2()` relies on — unrelated to Voronoi geometry, shipped as a
+documented 0.7.0 known issue rather than blocking that release.
+**Fixed in 0.7.1**: two independent overflow sites in the exact-fallback
+arithmetic core (`predicates::expansion`), both producing a silent `NaN`
+that broke `orient2d`'s permutation-consistency guarantee. See
+`CHANGELOG.md`'s `[0.7.1]` entry and `docs/numerical-model.md`'s "Known
+limitation (fixed): split() overflow and two_sum overflow for sign-only
+predicates" for the full diagnosis and fix. A structurally different,
+harder case remains deliberately deferred — not a permutation-consistency
+bug, doesn't panic, needs a different arithmetic architecture to fix —
+tracked in `tasks/todo.md` and `docs/numerical-model.md`'s "Known
+limitation: exact-product representability ceiling".
 
 ## Platforms
 
-* `aarch64-apple-darwin` — full test suite (360 tests across unit,
+* `aarch64-apple-darwin` — full test suite (369 tests across unit,
   differential, adversarial, regression, doctests — plus 10 more under
   `wasm-pack test`, see below) run locally on this target during
   development, not just built.
@@ -59,7 +69,7 @@ in `tasks/todo.md`. See `CHANGELOG.md`'s 0.7.0 "Known issues" entry.
   `triangulate_polygon_with_holes` happy paths) — under an actual Node.js
   runtime via `wasm-pack test --node --release`, both locally and in CI
   (the separate `wasm-test-node` job; the existing `wasm` build-only job
-  is unchanged). Not a port of the full 360-test native suite — deliberately
+  is unchanged). Not a port of the full 369-test native suite — deliberately
   small, to catch wasm32-*specific* codegen/execution divergence, not to
   duplicate coverage the native suite already has exhaustively. This
   closes the gap that mattered specifically for the exact-arithmetic

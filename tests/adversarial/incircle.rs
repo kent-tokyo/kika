@@ -92,3 +92,30 @@ fn extreme_large_scale_does_not_panic() {
     let d = pt(0.0, 0.0);
     let _ = incircle(a, b, c, d);
 }
+
+/// Mixed huge + tiny coordinates in one call, mirroring the shape of the
+/// 0.7.1 `delaunay2()` panic's repro triples
+/// (`tests/regression/orient2d.rs`) rather than the *uniform* extreme
+/// magnitude `extreme_large_scale_does_not_panic` above already covers.
+///
+/// Unlike `orient2d`/`orient3d`, this can't be pushed all the way to
+/// `rescale_for_sign_only`'s own trigger threshold (`f64::MAX/4`):
+/// `incircle` squares each coordinate difference internally
+/// (`adz = adx^2 + ady^2`), so its structural product-ceiling
+/// (`|adx| < f64::MAX.sqrt() ~= 1.34e154`, else `adx^2` itself overflows)
+/// is reached at a *much* lower magnitude than the two_sum-overflow fix's
+/// own trigger — confirmed empirically: `1e308` here hits that squaring
+/// ceiling (a distinct, deliberately deferred limitation, same as
+/// `extreme_large_scale_does_not_panic`'s own uniform-magnitude case)
+/// before the two_sum fix would ever engage. `1e70` (matching
+/// `extreme_large_scale_does_not_panic`'s own magnitude) stays within
+/// incircle's actual safe range while still creating genuine intra-call
+/// magnitude spread against the tiny sibling coordinates.
+#[test]
+fn mixed_huge_and_tiny_magnitude_does_not_panic() {
+    let a = pt(1e70, 0.0);
+    let b = pt(-1e70, 1e-10);
+    let c = pt(0.0, 1e-10);
+    let d = pt(0.0, 0.0);
+    let _ = incircle(a, b, c, d);
+}

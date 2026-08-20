@@ -113,3 +113,43 @@ fn extreme_large_scale_does_not_panic() {
     let c = pt(0.0, scale);
     assert_eq!(orient2d(a, b, c), Orientation::CounterClockwise);
 }
+
+/// Full antisymmetry under all 6 permutations of `(a, b, c)` — a genuine
+/// strengthening of `swap_ab_flips_sign` above, which only checks a single
+/// transposition. The 3 cyclic permutations must all agree with each
+/// other; the 3 (odd) transpositions must all agree with each other and be
+/// the flip of the cyclic group. Found wanting for exactly this property
+/// at extreme mixed magnitude — see
+/// `tests/regression/orient2d.rs`'s `permutation_consistent_at_extreme_mixed_magnitude`
+/// for the specific bug this generalizes from. Magnitudes here stay
+/// `<= 1e150`, comfortably below `orient2d`'s own degree-2 structural
+/// ceiling (`f64::MAX^(1/2) ~= 1.34e154`) — the still-deferred
+/// out-of-scope product-ceiling case, not this property, is covered
+/// separately (see `docs/numerical-model.md`).
+#[test]
+fn six_permutation_consistency_general() {
+    let triples = [
+        (pt(0.0, 0.0), pt(1.0, 0.0), pt(0.0, 1.0)),
+        (pt(-3.0, 5.0), pt(2.0, -1.0), pt(7.0, 7.0)),
+        (pt(0.0, 0.0), pt(1.0, 1.0), pt(2.0, 2.0)), // collinear
+        (pt(1e-140, 0.0), pt(0.0, 1e140), pt(1.0, 1.0)), // mixed magnitude
+        (pt(1e150, 0.0), pt(0.0, 1e150), pt(1.0, -1.0)), // near degree-2 ceiling
+    ];
+    for (a, b, c) in triples {
+        let cyclic = [orient2d(a, b, c), orient2d(b, c, a), orient2d(c, a, b)];
+        let transposed = [orient2d(a, c, b), orient2d(b, a, c), orient2d(c, b, a)];
+        for &o in &cyclic[1..] {
+            assert_eq!(
+                o, cyclic[0],
+                "cyclic permutations disagree for ({a:?},{b:?},{c:?})"
+            );
+        }
+        for &o in &transposed[1..] {
+            assert_eq!(
+                o, transposed[0],
+                "transposed permutations disagree for ({a:?},{b:?},{c:?})"
+            );
+        }
+        assert_eq!(transposed[0], flip(cyclic[0]));
+    }
+}

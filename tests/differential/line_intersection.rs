@@ -307,10 +307,22 @@ fn deterministic_crossing(scale: f64) -> (P2, P2, P2, P2) {
 /// complements `predicates::constructions::line_intersection`'s own
 /// internal finiteness-only sweep by additionally checking the *value* is
 /// still correctly rounded, not just finite.
+///
+/// Capped at `2^500` (`~3.27e150`), not swept all the way to `f64::MAX`:
+/// `segment_intersection` classifies via `orient2d` first, and
+/// `deterministic_crossing`'s 4 points are all uniform magnitude `scale`
+/// (no tiny sibling coordinate), so past `orient2d`'s own degree-2
+/// structural ceiling (`f64::MAX^(1/2) ~= 1.34e154`, i.e. `~2^512.6`) that
+/// classification call deliberately hits this crate's documented,
+/// out-of-scope `two_product` product-ceiling limitation (see
+/// `docs/numerical-model.md`) rather than exercising what this test is
+/// actually for — this construction's own degree-3 rescaling fix, which
+/// `2^500` already verifies 158 orders of magnitude past its `~5.6e102`
+/// overflow point, comfortably clearing this test's own `>= 300` bar.
 #[test]
 fn magnitude_ceiling_sweep() {
     let mut last_safe_exp = 0i32;
-    for exp in (0..=1020).step_by(20) {
+    for exp in (0..=500).step_by(20) {
         let scale = 2.0_f64.powi(exp);
         let (a, b, c, d) = deterministic_crossing(scale);
         let (ex, ey) = oracle_intersection(a, b, c, d);

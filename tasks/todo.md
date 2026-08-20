@@ -34,49 +34,132 @@
       `#[non_exhaustive]` list.
 - [ ] `docs/release-checklist.md` rewrite for 0.7.0 — in progress.
 
-## Discovered, not fixed (delaunay2() panics on permutation-inconsistent orient2d, extreme mixed magnitude)
+## Done (0.7.1: fix the delaunay2() permutation-inconsistency panic)
 
-- [ ] **`delaunay2()` panics** (`index out of bounds: the len is 3 but
-      the index is 3`, `src/triangulation/delaunay2.rs:235`) on 3 points
-      with widely mixed magnitude. Found by `fuzz/fuzz_targets/
-      voronoi_geometry.rs`'s first-ever run (raw `f64::from_bits`
-      coordinates) — unrelated to Voronoi geometry itself; a bare
-      `delaunay2(&[p0, p1, p2])` call reproduces it with no `Voronoi2`
-      involved. Minimal repro (each `Point2::new(x, y).unwrap()`):
+- [x] Root-caused, empirically (not just argued): two independent
+      overflow sites in `predicates::expansion`, confirmed against the
+      real public API before writing any fix.
+      - `split()`'s `SPLITTER * a` (`SPLITTER ~= 2^27`) overflows to
+        `±Infinity` for `|a| > f64::MAX/SPLITTER ~= 1.34e300`, then
+        `hi = c - a_big` becomes `Infinity - Infinity = NaN`. This is
+        the original fuzz-found repro's exact mechanism (`p1`'s
+        y-coordinate, `~4.25e304`, from the minimal repro below).
+      - `two_sum`'s `a + b` (inside `diff_expansion`) overflows for
+        opposite-sign coordinates each within a small factor of
+        `f64::MAX`, whose true difference itself exceeds `f64::MAX`.
+        Found independently while diagnosing the above:
+        `a=(1e308,0), b=(-1e308,1e-10), c=(0,1e-10)` is also
+        permutation-inconsistent through the real `orient2d`.
+      Both silently produce `NaN` that `expansion_sign` reads as
+      `Sign::Zero` (`Orientation::Collinear`) — `NaN != 0.0` is `true`
+      in Rust, so an unguarded `NaN` component reaches `Sign::of`, which
+      falls through both `> 0.0` and `< 0.0` to `Sign::Zero`.
+- [x] **Fixed** `delaunay2()` panics (`index out of bounds`) on 3 points
+      with widely mixed magnitude. Minimal repro (each
+      `Point2::new(x, y).unwrap()`):
       `p0 = (4.523334248222805e-282, 6.612169496581129e-281)`,
       `p1 = (3.2186699543901864e-57, -4.251746146807175e304)`,
-      `p2 = (2.247760886104758e-307, 1.3683225479033359e-48)`.
-- [ ] **Root cause identified, not fixed**: `orient2d` itself returns
-      *permutation-inconsistent* answers for these 3 points —
-      `orient2d(p0,p1,p2) == Clockwise` but `orient2d(p0,p2,p1) ==
-      Collinear` (swapping the last two arguments should always negate a
-      non-`Collinear` result exactly; it can never turn a genuine
-      non-collinear triple into `Collinear`). Confirmed the trigger is
-      mixed extreme magnitude, not merely "below the documented
-      `~1.7e-292` floor": replacing `p2` with `(1e-200, ...)` (well above
-      that floor) still reproduces the inconsistency, and replacing
-      `p1`'s `~4.25e304` y-coordinate with an ordinary-magnitude value
-      makes the inconsistency disappear entirely. `delaunay2()`'s own
-      "first 3 non-collinear points" loop
-      (`src/triangulation/delaunay2.rs:230-237`) explicitly assumes
-      antisymmetry/consistency it doesn't get here, and its own comment
-      says as much ("if every `pts[i]` were collinear ... the whole set
-      would be collinear, contradicting the hull check above") — that
-      argument silently assumes `orient2d` is self-consistent under
-      permutation, which this input violates.
-- [ ] **Deliberately out of scope for the 0.7.0 Voronoi-geometry
-      hardening round** that found it: fixing `orient2d`'s exact fallback
-      (or `convex_hull2`'s consistency with it) at this magnitude is a
-      `predicates`-level investigation, not a `triangulation::voronoi`
-      one. Needs its own round: likely investigate whether
-      `product_of_expansions`/`diff_expansion` overflow internally for
-      `~1e304`-scale differences (echoes, but is not identical to, the
-      already-documented "K = 2^1023 breaks orient2d" finding from the
-      ADR-009 implementation round — that one was `Collinear`
-      misclassification of a single call, not permutation
-      inconsistency across calls). The crash artifact itself was deleted
-      (`fuzz/artifacts/` is gitignored and regenerable; the 3 coordinates
-      above are the reproduction, not the binary file).
+      `p2 = (2.247760886104758e-307, 1.3683225479033359e-48)` — pinned in
+      `tests/regression/orient2d.rs`'s
+      `permutation_consistent_at_extreme_mixed_magnitude`, alongside the
+      second repro above.
+- [x] `split()` (`src/predicates/expansion.rs`) made overflow-safe for
+      any finite input: above the threshold, recursively splits a
+      `2^-100`-rescaled copy and scales the result back — exact, since
+      power-of-two multiplication never loses precision short of
+      overflow/underflow. Gated on `a.is_finite()` to avoid infinite
+      recursion for an already-`Infinity` input from an unrelated
+      overflow upstream (found via a pre-existing `circumcenter` test
+      that deliberately constructs one) — `Infinity * 2^-100` is still
+      `Infinity`, so without the guard the threshold check never stops
+      triggering.
+- [x] New `rescale_for_sign_only` helper (`predicates::expansion`), used
+      only by `orient2d_exact`/`orient3d_exact`/`incircle_exact`/
+      `insphere_exact` — **not** pushed into `diff_expansion` itself,
+      since `circumcenter`/`line_intersection` also call it and need the
+      real magnitude back, not just a sign. Rescales *every* coordinate
+      in one predicate call by a fixed `0.25` factor above a fixed
+      `f64::MAX/4` threshold, never restored — a determinant is
+      homogeneous of positive degree in its coordinates, so any positive
+      uniform rescale preserves its sign. Rescaling only the one
+      overflowing diff (mirroring `voronoi::edge_vector`'s single-vector
+      rescale too literally) was considered and rejected: it would
+      desync that diff's scale from its siblings and corrupt the
+      surrounding product's sign — the same bug class being fixed.
+      Likewise rejected `circumcenter`/`line_intersection`'s own dynamic
+      "normalize max coordinate to 1.0" rescale: for a call with a huge
+      coordinate and a genuinely tiny sibling (exactly this bug's
+      shape), that dynamic a shift would flush the tiny sibling to zero.
+- [x] `expansion_sign` given a debug-only NaN guard, but *only* via a new
+      `sign_only_expansion_sign` wrapper used by the 4 sign-only
+      predicates — not inside `expansion_sign` itself. Learned the hard
+      way: `circumcenter`/`line_intersection` (and `correctly_rounded_divide`)
+      legitimately drive an intermediate expansion non-finite while
+      computing a true result that itself doesn't fit in `f64` (e.g. a
+      thin triangle's circumcenter), and already handle this correctly
+      via their own final `.is_finite()` check — a shared assert in
+      `expansion_sign` broke those already-passing tests
+      (`thin_triangle_overflow_returns_none_not_a_panic` and others).
+      Compiles out in release, so release-mode behavior for any
+      still-deferred case (below) is unchanged.
+- [x] Two pre-existing tests turned out to already be probing past this
+      round's actual safe range and needed their own fix, not a weaker
+      assert: `tests/adversarial/orient3d.rs`'s `extreme_large_scale_does_not_panic`
+      used `1e150` (copied from `orient2d`'s own test) without accounting
+      for `orient3d` being degree-3, not degree-2 — its real structural
+      ceiling is `~5.65e102`; fixed to `1e90` (matching
+      `circumcenter`/`line_intersection`'s own `RESCALE_THRESHOLD`
+      precedent for degree-3 shapes). `tests/differential/line_intersection.rs`'s
+      `magnitude_ceiling_sweep` swept coordinates up to `2^1020` through
+      `segment_intersection`, which classifies via `orient2d` internally
+      and — at uniform magnitude with no tiny sibling coordinate — was
+      always going to cross `orient2d`'s own degree-2 ceiling
+      (`~2^512.6`) well before `2^1020`; capped at `2^500`, still 158
+      orders of magnitude past what the test actually exists to verify
+      (`line_intersection`'s own degree-3 numerator fix).
+
+## Discovered, not fixed (two deliberately deferred representability limits)
+
+- [ ] **`two_product`'s `a * b` overflows when *both* operands are
+      independently `> ~sqrt(f64::MAX) ~= 1.34e154`** — e.g.
+      `p0=(1e300,1e300), p1=(-1e300,1e300), p2=(0,0)` (a valid, large,
+      non-degenerate right triangle) returns `Orientation::Collinear`
+      self-consistently across all 6 permutations of `orient2d` — wrong,
+      but not permutation-*inconsistent*, so it doesn't panic
+      `delaunay2()` and isn't the bug the 0.7.1 round above fixed. A
+      genuine representability ceiling, structurally symmetric to the
+      already-documented `~1.7e-292` small-value floor — not fixable by
+      rescaling alone (rescaling shifts the whole magnitude range, it
+      doesn't compress the *span* between a huge and a tiny coordinate in
+      the same call, which is exactly what's needed here). A real fix
+      needs a different arithmetic architecture (e.g. variable-precision/
+      Shewchuk-adaptive expansions), out of scope for a patch release.
+      `incircle`/`insphere` reach a *much* narrower version of this same
+      ceiling even sooner, via their own internal squaring
+      (`adz = adx^2 + ady^2`, etc.) — confirmed empirically while writing
+      this round's `tests/adversarial/incircle.rs`/`insphere.rs` spot
+      checks, which had to stay at `1e70`/`1e30` respectively (matching
+      each predicate's own pre-existing `extreme_large_scale_does_not_panic`
+      magnitude) rather than the `1e308` used for `orient2d`/`orient3d`'s
+      equivalent checks.
+- [ ] **`split()`'s own narrower residual**: for `|a|` within roughly
+      `2^-26` of `f64::MAX` itself (a band `~4.3e300` wide at the very
+      top of `f64`'s range), the correctly-rounded result would need a
+      nonexistent exponent 1024, so `split` returns `hi = Infinity`
+      regardless of rescale factor — a rounding-carry limit intrinsic to
+      representing the result at all, not specific to this round's fix.
+      `split` itself never produces `NaN` here (verified, not assumed —
+      `split_near_f64_max_does_not_panic`), but `two_product` built on
+      top of it still can, via `Infinity * 0.0` (exactly zero is
+      `split`'s own `lo` for plenty of ordinary values, e.g.
+      `split(1.0) == (1.0, 0.0)`) — never a panic either way. Structurally
+      distinct from the item above (a rounding-carry/subtraction limit,
+      not a multiplication-overflow one), and much narrower.
+- [ ] Both documented in `docs/numerical-model.md`. Expected fallout:
+      `fuzz/fuzz_targets/predicate_input_bytes.rs` (raw `f64::from_bits`
+      coordinates) may now hit either case and panic via the new
+      `sign_only_expansion_sign` debug assert, in debug/fuzz builds only
+      — not a new bug introduced by this round, don't re-triage as one.
 
 ## Done (ADR-009 0.7.0 hardening round: ray-direction finiteness, InvalidTopology, fuzz target)
 

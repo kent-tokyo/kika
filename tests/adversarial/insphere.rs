@@ -124,3 +124,26 @@ fn extreme_large_scale_does_not_panic() {
     let e = pt(0.0, 0.0, 0.0);
     let _ = insphere(scaled(a), scaled(b), scaled(c), scaled(d), e);
 }
+
+/// Mixed huge + tiny coordinates in one call, mirroring the shape of the
+/// 0.7.1 `delaunay2()` panic's repro triples
+/// (`tests/regression/orient2d.rs`) rather than the *uniform* extreme
+/// magnitude `extreme_large_scale_does_not_panic` above already covers.
+///
+/// As with `incircle` (see its own `mixed_huge_and_tiny_magnitude_does_not_panic`),
+/// this can't be pushed to `rescale_for_sign_only`'s own trigger threshold
+/// (`f64::MAX/4`): `insphere` sums three squared differences internally
+/// (`adw = adx^2 + ady^2 + adz^2`), an even narrower structural
+/// product-ceiling than `incircle`'s. `1e30` (matching
+/// `extreme_large_scale_does_not_panic`'s own magnitude) stays within
+/// insphere's actual safe range while still creating genuine intra-call
+/// magnitude spread against the tiny sibling coordinates.
+#[test]
+fn mixed_huge_and_tiny_magnitude_does_not_panic() {
+    let a = pt(1e30, 0.0, 0.0);
+    let b = pt(-1e30, 1e-10, 0.0);
+    let c = pt(0.0, 1e-10, 1e-10);
+    let d = pt(0.0, 0.0, 1e-10);
+    let e = pt(0.0, 0.0, 0.0);
+    let _ = insphere(a, b, c, d, e);
+}

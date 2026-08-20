@@ -11,9 +11,31 @@ use super::sign::Sign;
 /// without rounding.
 const SPLITTER: f64 = 134_217_729.0; // 2^27 + 1
 
+/// Above this magnitude, `SPLITTER * a` (the first step of [`split`])
+/// itself overflows to `±Infinity` before `a`'s high/low halves can be
+/// extracted — the resulting `Infinity - Infinity` produces a `NaN` that
+/// silently corrupts every downstream exact-expansion computation (see
+/// [`expansion_sign`]'s NaN guard). Derived exactly as `f64::MAX /
+/// SPLITTER`: the largest `a` for which `SPLITTER * a` still fits in
+/// `f64`'s finite range. This was the root cause of a real
+/// permutation-inconsistent `orient2d` bug (extreme mixed-magnitude
+/// input); see `docs/numerical-model.md` "Known limitation (fixed):
+/// split() overflow" and `tests/regression/orient2d.rs`.
+const SPLIT_OVERFLOW_THRESHOLD: f64 = f64::MAX / SPLITTER;
+
 /// Exact sum: `hi = fl(a + b)`, and `hi + lo == a + b` exactly (as real
-/// numbers), for any finite `a`, `b`. No magnitude ordering required.
-/// (Knuth / Møller.)
+/// numbers), for any finite `a`, `b` whose true sum is itself finite. No
+/// magnitude ordering required. (Knuth / Møller.)
+///
+/// If `a` and `b` are opposite-sign and each within a small factor of
+/// `f64::MAX`, their true sum can itself exceed `f64::MAX`, and `hi`
+/// overflows to `±Infinity` — a genuine representability limit (the exact
+/// result has no finite `f64` value at all), not an artifact of this
+/// algorithm. Sign-only callers ([`orient2d`](super::orient2d),
+/// [`orient3d`](super::orient3d), [`incircle`](super::incircle),
+/// [`insphere`](super::insphere)) route their raw coordinates through
+/// [`rescale_for_sign_only`] first specifically to avoid this — see its
+/// doc comment.
 #[inline]
 pub(crate) fn two_sum(a: f64, b: f64) -> (f64, f64) {
     let hi = a + b;
@@ -25,9 +47,58 @@ pub(crate) fn two_sum(a: f64, b: f64) -> (f64, f64) {
     (hi, lo)
 }
 
-/// Splits `a` into two `f64` halves `(hi, lo)` with `hi + lo == a` exactly.
+/// Splits `a` into two `f64` halves `(hi, lo)` with `hi + lo == a` exactly,
+/// for any finite `a`. Above [`SPLIT_OVERFLOW_THRESHOLD`], splits a
+/// `2^-100`-rescaled copy of `a` instead (`f64::MAX * 2^-100 ~= 1.4e278`,
+/// comfortably below the threshold for any finite `a`) and scales the
+/// resulting `(hi, lo)` back up by `2^100`. Both scaling steps are exact
+/// power-of-two multiplies — lossless by construction, as long as the
+/// intermediate scaled value and its own split halves stay finite, which
+/// they do for any `a` up to `f64::MAX`. Recurses at most once for finite
+/// `a`: `2^-100` alone already brings the largest possible `|a|` below the
+/// threshold, so the recursive call never re-enters this branch. The
+/// rescale branch is gated on `a.is_finite()` specifically so that an
+/// already-non-finite `a` (from an unrelated overflow upstream of this
+/// fix's scope) falls through to the plain computation below instead of
+/// recursing forever (`Infinity * 2^-100` is still `Infinity`, so without
+/// this guard the threshold check would never stop triggering).
+///
+/// # Known limitation: residual ceiling within `~2^-26` of `±f64::MAX`
+///
+/// For `a` whose magnitude is within roughly `2^-26` of `f64::MAX` itself
+/// (a band about `4.3e300` wide at the very top of `f64`'s range), the
+/// correctly-rounded `hi` would need to round up into the next binade —
+/// exponent 1024, which has no finite `f64` representation — so `split`
+/// still returns `hi = Infinity` there, regardless of rescale factor (the
+/// round-up decision depends only on `a`'s mantissa bits, which power-of-
+/// two scaling preserves exactly). This is a rounding-carry limit
+/// intrinsic to representing the result at all, not specific to this
+/// fix's `2^-100` choice. `split` itself never panics or produces `NaN`
+/// for this residual (only `Infinity`, with `lo` staying finite — verified
+/// empirically, not just argued, by `split_near_f64_max_does_not_panic`).
+/// [`two_product`] built on top of it can still reach `NaN` here, though:
+/// `Infinity * 0.0` is `NaN` by IEEE 754, and `two_product`'s cross terms
+/// multiply one operand's (possibly-`Infinity`) `hi` half against the
+/// *other* operand's `lo` half, which is exactly `0.0` for plenty of
+/// ordinary values (e.g. `split(1.0) == (1.0, 0.0)`) — never a panic
+/// either way, matching this crate's "checked rather than trusted"
+/// posture. See `docs/numerical-model.md` for the tracked,
+/// deliberately-deferred follow-up.
 #[inline]
 fn split(a: f64) -> (f64, f64) {
+    // `a.is_finite()` guards against infinite recursion for already-
+    // non-finite `a` (e.g. `Infinity` from an unrelated overflow upstream,
+    // outside this fix's scope — `split`'s contract is "for any finite
+    // a"): `Infinity * 2^-100` is still `Infinity`, so without this guard
+    // the rescale would never bring `a` under the threshold and this
+    // would recurse forever instead of falling through to the plain
+    // (NaN-producing but non-panicking) computation below.
+    if a.is_finite() && a.abs() > SPLIT_OVERFLOW_THRESHOLD {
+        let scale_down = 2f64.powi(-100);
+        let scale_up = 2f64.powi(100);
+        let (hi, lo) = split(a * scale_down);
+        return (hi * scale_up, lo * scale_up);
+    }
     let c = SPLITTER * a;
     let a_big = c - a;
     let hi = c - a_big;
@@ -57,12 +128,71 @@ pub(crate) fn product_expansion(a: f64, b: f64) -> [f64; 2] {
 }
 
 /// The two-component nonoverlapping expansion for the exact value `a - b`,
-/// for any finite `a`, `b` — no exponent-range restriction, unlike
-/// [`product_expansion`] (this is `two_sum(a, -b)`, and negation is
-/// always exact).
+/// for any finite `a`, `b` whose true difference is itself finite (this is
+/// `two_sum(a, -b)`, and negation is always exact — see [`two_sum`] for the
+/// one case where the true difference itself overflows `f64::MAX`).
 pub(crate) fn diff_expansion(a: f64, b: f64) -> [f64; 2] {
     let (hi, lo) = two_sum(a, -b);
     [lo, hi]
+}
+
+/// Coordinate-magnitude threshold above which [`rescale_for_sign_only`]
+/// rescales its input. Below this threshold, the worst-case difference of
+/// two same-call coordinates (opposite-sign, both at the threshold) is
+/// already `2 * (f64::MAX/4) == f64::MAX/2`, finite; above it, rescaling by
+/// the fixed [`SIGN_ONLY_RESCALE_FACTOR`] brings that same worst case back
+/// down to `f64::MAX/2` regardless of how close the original coordinate was
+/// to `f64::MAX` itself.
+const SIGN_ONLY_RESCALE_THRESHOLD: f64 = f64::MAX / 4.0;
+
+/// The fixed rescale factor applied when [`SIGN_ONLY_RESCALE_THRESHOLD`] is
+/// exceeded — an exact power of two, lossless for any element down to the
+/// subnormal range, far below this crate's documented exactness floor.
+const SIGN_ONLY_RESCALE_FACTOR: f64 = 0.25;
+
+/// Rescales every element of `coords` by [`SIGN_ONLY_RESCALE_FACTOR`] if any
+/// element's magnitude exceeds [`SIGN_ONLY_RESCALE_THRESHOLD`]; otherwise
+/// returns `coords` unchanged.
+///
+/// For **sign-only** callers — `orient2d_exact`/`orient3d_exact`/
+/// `incircle_exact`/`insphere_exact`, which only ever call
+/// [`expansion_sign`] on a determinant built from the result — never for
+/// callers needing a difference's true magnitude back
+/// ([`circumcenter`](super::constructions::circumcenter)/
+/// [`line_intersection`](super::constructions::line_intersection) use
+/// their own, separate, restore-the-scale pattern; pushing this into
+/// [`diff_expansion`] itself would silently return wrong numbers for
+/// them).
+///
+/// # Why uniform rescale of *every* coordinate, not just the overflowing pair
+///
+/// A predicate's exact-fallback determinant multiplies diffs built from
+/// *different* coordinate pairs (e.g. `orient2d`'s `acx*bcy - acy*bcx`).
+/// Rescaling only the one diff that would overflow would desynchronize its
+/// scale from its siblings, corrupting the surrounding product/sum's
+/// *sign* — the exact class of bug this fixes. Rescaling every input
+/// coordinate to the call uniformly keeps every diff at the same relative
+/// scale, so the determinant's sign is unaffected: a determinant built
+/// from coordinate rows is homogeneous of positive degree in the
+/// coordinates, so any positive uniform rescale multiplies it by a
+/// positive factor, never flipping its sign — the same "no magnitude
+/// contract, only sign, preserved under positive uniform rescale"
+/// reasoning `triangulation::voronoi::edge_vector` established, generalized
+/// from one vector to a whole multi-term determinant.
+///
+/// A **fixed**, small scale factor (not a dynamic "normalize the max
+/// coordinate to 1.0" factor, unlike `circumcenter`/`line_intersection`'s
+/// own rescale) is essential here: this predicate family can have a
+/// genuinely tiny *sibling* coordinate in the same call as the huge one —
+/// that's the actual bug-triggering shape — and a large dynamic shift
+/// would flush that sibling to zero, silently turning a non-degenerate
+/// input into a degenerate one.
+pub(crate) fn rescale_for_sign_only<const N: usize>(coords: [f64; N]) -> [f64; N] {
+    let max_coord = coords.iter().fold(0.0_f64, |acc, &v| acc.max(v.abs()));
+    if max_coord <= SIGN_ONLY_RESCALE_THRESHOLD {
+        return coords;
+    }
+    coords.map(|v| v * SIGN_ONLY_RESCALE_FACTOR)
 }
 
 /// Merges `base` and `addend` (both nonoverlapping expansions) into a
@@ -171,6 +301,24 @@ pub(crate) fn product_of_expansions(e: &[f64], f: &[f64]) -> Vec<f64> {
 
 /// The exact sign of a nonoverlapping expansion: the sign of its most
 /// significant (last) nonzero component. See `docs/numerical-model.md`.
+///
+/// `NaN != 0.0` is `true`, so an unguarded `NaN` component reaches
+/// `Sign::of`, which resolves it to `Sign::Zero` — silently turning
+/// arithmetic corruption (or a genuine, already-handled overflow — see
+/// below) into a `Zero`/`Collinear` answer rather than surfacing it. This
+/// is deliberately *not* asserted against here, because this function is
+/// shared by callers with two different, legitimate reasons to reach it
+/// with a non-finite component: the sign-only predicates
+/// (`orient2d_exact`/`orient3d_exact`/`incircle_exact`/`insphere_exact`,
+/// which call [`sign_only_expansion_sign`] instead — see its doc comment
+/// for the NaN guard that belongs there) versus magnitude-sensitive
+/// constructions (`circumcenter`/`line_intersection`/
+/// `correctly_rounded_divide`), which can legitimately drive an
+/// intermediate expansion non-finite while computing a true result that
+/// itself doesn't fit in `f64` (e.g. a thin triangle's circumcenter) —
+/// those already detect this via their own final `.is_finite()` check, not
+/// via this function, so asserting here would fail on already-correct,
+/// already-tested behavior.
 pub(crate) fn expansion_sign(e: &[f64]) -> Sign {
     for &value in e.iter().rev() {
         if value != 0.0 {
@@ -178,6 +326,35 @@ pub(crate) fn expansion_sign(e: &[f64]) -> Sign {
         }
     }
     Sign::Zero
+}
+
+/// [`expansion_sign`], with an added `debug_assert` against `NaN`
+/// components — for the 4 sign-only predicates' exact fallbacks only
+/// (`orient2d_exact`/`orient3d_exact`/`incircle_exact`/`insphere_exact`).
+/// Unlike `circumcenter`/`line_intersection` (which have their own,
+/// different way of detecting an unrepresentable *result*, since they need
+/// a real value back — see [`expansion_sign`]'s doc comment), these 4
+/// predicates have no fallback interpretation for a NaN-corrupted
+/// determinant: after routing their input coordinates through
+/// [`rescale_for_sign_only`], a NaN reaching this point means one of: a
+/// regression in one of the two fixes documented there; an input past this
+/// crate's still-deferred `two_product` product-ceiling limitation; or an
+/// input in [`split`]'s narrow near-`±f64::MAX` residual band, where
+/// `two_product` can still reach `NaN` via `Infinity * 0.0` even though
+/// `split` itself only ever produces `Infinity` there (see `split`'s own
+/// doc comment) — all three documented in `docs/numerical-model.md`, and
+/// all three worth failing loudly on during development/fuzzing rather
+/// than silently returning a wrong `Collinear`/`Zero`, which was the
+/// actual mechanism behind the 0.7.0 `delaunay2()` panic this crate fixed.
+/// Debug-only (compiled out in release, matching every other predicate's
+/// "never panics" contract) — release-mode behavior for the still-deferred
+/// cases is unchanged.
+pub(crate) fn sign_only_expansion_sign(e: &[f64]) -> Sign {
+    debug_assert!(
+        e.iter().all(|v| !v.is_nan()),
+        "sign_only_expansion_sign: NaN component in {e:?}"
+    );
+    expansion_sign(e)
 }
 
 /// The expansion with every component's sign flipped — `-e`.
@@ -307,8 +484,11 @@ mod tests {
     /// representable as a single `f64`, which (worked out and verified
     /// empirically, see module docs "Known limitation") requires
     /// `|a*b| >= 2^-968 ~= 1.7e-292`. Every pairwise product of these
-    /// values stays far above that floor (worst case ~1e-200) and far
-    /// below overflow.
+    /// values stays far above that floor (worst case ~1e-200) — this
+    /// fixture is deliberately floor-focused, not ceiling-focused: it says
+    /// nothing about behavior near `f64::MAX`, which
+    /// `two_product_extreme_ceiling_pairs`/`split_near_f64_max_does_not_panic`
+    /// below cover instead.
     fn two_product_safe_values() -> Vec<f64> {
         vec![
             0.0,
@@ -400,6 +580,116 @@ mod tests {
                 assert!(
                     hi.is_finite() && lo.is_finite(),
                     "two_product({a}, {b}) produced non-finite output"
+                );
+            }
+        }
+    }
+
+    /// `(huge-but-individually-safe, ordinary-scale)` pairs, exercising
+    /// [`split`]'s overflow fix (`|a| > SPLIT_OVERFLOW_THRESHOLD ~=
+    /// 1.34e300`) without approaching the *separate*, deliberately deferred
+    /// `two_product` product-ceiling (`~sqrt(f64::MAX) ~= 1.34e154`, which
+    /// needs *both* operands independently huge — see
+    /// `docs/numerical-model.md`). Includes `4.251746146807175e304`, the
+    /// exact magnitude from the 0.7.0 `delaunay2()` panic's repro triple
+    /// (`tasks/todo.md`).
+    fn two_product_extreme_ceiling_pairs() -> Vec<(f64, f64)> {
+        let mut pairs = vec![];
+        for &huge in &[
+            2e300_f64,
+            -2e300,
+            5e300,
+            -5e300,
+            1e304,
+            -1e304,
+            4.251746146807175e304,
+            1e307,
+            -1e307,
+        ] {
+            for &ordinary in &[
+                1.0,
+                -1.0,
+                0.1,
+                -0.1,
+                core::f64::consts::PI,
+                2.0,
+                1e-10,
+                1e-100,
+            ] {
+                pairs.push((huge, ordinary));
+            }
+        }
+        pairs
+    }
+
+    /// This is what actually pins the `split()` overflow fix: before it,
+    /// `split(4.251746146807175e304)` (and every other value above
+    /// `SPLIT_OVERFLOW_THRESHOLD`) produced `(NaN, NaN)`, failing this
+    /// exactness check outright — the end-to-end 6-permutation `orient2d`
+    /// regression test in `tests/regression/orient2d.rs` does not exercise
+    /// this specific code path for repro triple #1 the same direct way.
+    #[test]
+    fn two_product_extreme_ceiling_is_exact() {
+        for (a, b) in two_product_extreme_ceiling_pairs() {
+            let (hi, lo) = two_product(a, b);
+            let got = exact(hi) + exact(lo);
+            let want = exact(a) * exact(b);
+            assert_eq!(got, want, "two_product({a}, {b}) exactness");
+        }
+    }
+
+    /// Documents `split`'s accepted residual (see its own doc comment):
+    /// for `a` within `~2^-26` of `±f64::MAX`, the correctly-rounded result
+    /// would need a nonexistent exponent, so `split` returns `Infinity` —
+    /// never `NaN`, never a panic. Mirrors
+    /// `two_product_true_subnormal_operand_does_not_panic`'s "document the
+    /// limit, assert only the API contract" style, at the opposite
+    /// (large-magnitude) end.
+    #[test]
+    fn split_near_f64_max_does_not_panic() {
+        for &a in &[
+            f64::MAX,
+            -f64::MAX,
+            f64::MAX * 0.9999999,
+            -f64::MAX * 0.9999999,
+        ] {
+            // split() itself: verified to never produce NaN here (only the
+            // documented residual Infinity for hi, with lo staying
+            // finite) -- see split()'s own doc comment.
+            let (hi, lo) = split(a);
+            assert!(
+                !hi.is_nan() && !lo.is_nan(),
+                "split({a}) produced NaN -- expected at most the documented residual Infinity"
+            );
+            // two_product built on top: a residual Infinity from split()
+            // can still reach NaN here via `Infinity * 0.0` (see
+            // split()'s doc comment) -- only non-panic is asserted.
+            for &b in &[1.0_f64, -1.0, 0.1] {
+                let _ = two_product(a, b);
+            }
+        }
+    }
+
+    #[test]
+    fn rescale_for_sign_only_is_noop_below_threshold() {
+        let coords = [1.0_f64, -2.5, 1e100, -1e100, 0.0, 42.0];
+        assert_eq!(rescale_for_sign_only(coords), coords);
+    }
+
+    #[test]
+    fn rescale_for_sign_only_prevents_two_sum_overflow_above_threshold() {
+        let coords = [f64::MAX, 0.0, -f64::MAX, 1e-10, 0.0, 1e-10];
+        let rescaled = rescale_for_sign_only(coords);
+        for (orig, scaled) in coords.iter().zip(rescaled.iter()) {
+            assert_eq!(*scaled, orig * SIGN_ONLY_RESCALE_FACTOR);
+        }
+        for &x in &rescaled {
+            for &y in &rescaled {
+                let (hi, lo) = two_sum(x, -y);
+                assert!(
+                    hi.is_finite() && lo.is_finite(),
+                    "two_sum({x}, {}) overflowed even after rescale_for_sign_only",
+                    -y
                 );
             }
         }

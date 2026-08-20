@@ -1,6 +1,6 @@
 use super::expansion::{
-    det3_exact, det3_with_precancel_bound, diff_expansion, expansion_sign, expansion_sum,
-    product_of_expansions,
+    det3_exact, det3_with_precancel_bound, diff_expansion, expansion_sum, product_of_expansions,
+    rescale_for_sign_only, sign_only_expansion_sign,
 };
 use super::sign::Sign;
 use crate::primitives::Point2;
@@ -85,13 +85,18 @@ pub fn incircle(a: Point2, b: Point2, c: Point2, d: Point2) -> Sign {
     incircle_exact(a, b, c, d)
 }
 
+/// Exact fallback: coordinates are first routed through
+/// [`rescale_for_sign_only`] — see that function's doc comment and
+/// `orient2d_exact`'s.
 fn incircle_exact(a: Point2, b: Point2, c: Point2, d: Point2) -> Sign {
-    let adx = diff_expansion(a.x(), d.x());
-    let ady = diff_expansion(a.y(), d.y());
-    let bdx = diff_expansion(b.x(), d.x());
-    let bdy = diff_expansion(b.y(), d.y());
-    let cdx = diff_expansion(c.x(), d.x());
-    let cdy = diff_expansion(c.y(), d.y());
+    let [ax, ay, bx, by, cx, cy, dx, dy] =
+        rescale_for_sign_only([a.x(), a.y(), b.x(), b.y(), c.x(), c.y(), d.x(), d.y()]);
+    let adx = diff_expansion(ax, dx);
+    let ady = diff_expansion(ay, dy);
+    let bdx = diff_expansion(bx, dx);
+    let bdy = diff_expansion(by, dy);
+    let cdx = diff_expansion(cx, dx);
+    let cdy = diff_expansion(cy, dy);
 
     let adz = expansion_sum(
         &product_of_expansions(&adx, &adx),
@@ -107,7 +112,7 @@ fn incircle_exact(a: Point2, b: Point2, c: Point2, d: Point2) -> Sign {
     );
 
     let det = det3_exact((&adx, &ady, &adz), (&bdx, &bdy, &bdz), (&cdx, &cdy, &cdz));
-    expansion_sign(&det)
+    sign_only_expansion_sign(&det)
 }
 
 #[cfg(test)]

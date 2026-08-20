@@ -1,4 +1,7 @@
-use super::expansion::{det3_exact, det3_with_precancel_bound, diff_expansion, expansion_sign};
+use super::expansion::{
+    det3_exact, det3_with_precancel_bound, diff_expansion, rescale_for_sign_only,
+    sign_only_expansion_sign,
+};
 use super::sign::Sign;
 use crate::primitives::Point3;
 
@@ -78,20 +81,36 @@ pub fn orient3d(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
 /// with [`product_of_expansions`] throughout. See `orient2d_exact`'s doc
 /// comment and `docs/numerical-model.md` "Known limitation: exactness
 /// starts at the original coordinates" for why reusing the filter's
-/// once-rounded `adx` etc. here would not be fully exact.
+/// once-rounded `adx` etc. here would not be fully exact. Coordinates are
+/// first routed through [`rescale_for_sign_only`] — see that function's
+/// doc comment.
 fn orient3d_exact(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
-    let adx = diff_expansion(a.x(), d.x());
-    let ady = diff_expansion(a.y(), d.y());
-    let adz = diff_expansion(a.z(), d.z());
-    let bdx = diff_expansion(b.x(), d.x());
-    let bdy = diff_expansion(b.y(), d.y());
-    let bdz = diff_expansion(b.z(), d.z());
-    let cdx = diff_expansion(c.x(), d.x());
-    let cdy = diff_expansion(c.y(), d.y());
-    let cdz = diff_expansion(c.z(), d.z());
+    let [ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz] = rescale_for_sign_only([
+        a.x(),
+        a.y(),
+        a.z(),
+        b.x(),
+        b.y(),
+        b.z(),
+        c.x(),
+        c.y(),
+        c.z(),
+        d.x(),
+        d.y(),
+        d.z(),
+    ]);
+    let adx = diff_expansion(ax, dx);
+    let ady = diff_expansion(ay, dy);
+    let adz = diff_expansion(az, dz);
+    let bdx = diff_expansion(bx, dx);
+    let bdy = diff_expansion(by, dy);
+    let bdz = diff_expansion(bz, dz);
+    let cdx = diff_expansion(cx, dx);
+    let cdy = diff_expansion(cy, dy);
+    let cdz = diff_expansion(cz, dz);
 
     let det = det3_exact((&adx, &ady, &adz), (&bdx, &bdy, &bdz), (&cdx, &cdy, &cdz));
-    expansion_sign(&det)
+    sign_only_expansion_sign(&det)
 }
 
 #[cfg(test)]

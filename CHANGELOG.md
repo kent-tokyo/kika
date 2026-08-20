@@ -5,6 +5,53 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-20
+
+### Fixed
+
+- `delaunay2()` panic (`index out of bounds`) on 3 input points with
+  extreme, widely mixed coordinate magnitude — the 0.7.0 "Known issues"
+  entry below. Root-caused to two independent overflow sites in the
+  exact-fallback arithmetic core (`predicates::expansion`):
+  - `split()`'s `SPLITTER * a` step overflowed to `±Infinity` for
+    `|a| > f64::MAX/SPLITTER ~= 1.34e300` (the original fuzz-found
+    repro's mechanism — one coordinate near `4.25e304`).
+  - `diff_expansion`'s `two_sum` overflowed for opposite-sign
+    coordinates each within a small factor of `f64::MAX`, whose true
+    difference itself exceeds `f64::MAX` (found independently while
+    diagnosing the above).
+
+  Both silently produced `NaN` that `expansion_sign` read as
+  `Sign::Zero` (`Orientation::Collinear`), breaking `orient2d`'s
+  permutation-consistency guarantee and, downstream, `delaunay2()`'s
+  "first 3 non-collinear points" search. Fixed by (1) a magnitude-safe
+  `split()` (recursive power-of-two rescale, exact and lossless), and
+  (2) a new `rescale_for_sign_only` helper applied to the 4 sign-only
+  predicates' exact fallbacks (`orient2d`/`orient3d`/`incircle`/
+  `insphere`) — a fixed, uniform per-call coordinate rescale, never
+  restored, since sign is invariant under positive uniform scaling
+  (generalizing `triangulation::voronoi::edge_vector`'s own rescale
+  fix from one vector to a whole multi-term determinant).
+  `circumcenter`/`line_intersection` are unaffected — they need real
+  magnitudes back, not just a sign, so they keep their own existing
+  rescale-and-restore approach.
+
+  `expansion_sign` also gained a debug-only NaN guard for the 4
+  sign-only predicates specifically (`sign_only_expansion_sign`) — no
+  effect on release-build behavior or the public API's "never panics"
+  contract; it exists to fail loudly during development/fuzzing instead
+  of silently returning a wrong `Collinear`, matching this crate's
+  "checked rather than trusted" posture.
+
+  A structurally different, harder case remains deliberately deferred:
+  `two_product`'s own `a * b` overflows when *both* operands are
+  independently larger than `~sqrt(f64::MAX) ~= 1.34e154` — a genuine
+  representability ceiling (symmetric to this crate's already-documented
+  `~1.7e-292` small-value floor), not fixable by rescaling alone. See
+  `docs/numerical-model.md` and `tasks/todo.md` for full detail,
+  including a second, narrower deferred item (a residual `split()`
+  rounding-carry limit within `~2^-26` of `±f64::MAX` itself).
+
 ## [0.7.0] - 2026-08-20
 
 ### Added

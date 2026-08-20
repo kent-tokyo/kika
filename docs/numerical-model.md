@@ -344,6 +344,116 @@ lossless in IEEE-754 up to its own overflow/underflow limits, and would
 push the floor down by roughly the scaling exponent. Not implemented in
 Phase 1 (no known need).
 
+## Known limitation (fixed): split() overflow and two_sum overflow for sign-only predicates
+
+0.7.0 shipped with a real bug at the opposite (large-magnitude) end of
+this arithmetic core from the floor above: `delaunay2()` could panic
+(`index out of bounds`) on 3 points with extreme, widely mixed coordinate
+magnitude, because `orient2d` returned *permutation-inconsistent* answers
+— breaking the antisymmetry `delaunay2()`'s "first 3 non-collinear
+points" search relies on. Fixed in 0.7.1; the diagnosis (found by
+`fuzz/fuzz_targets/voronoi_geometry.rs`) and fix are recorded here since
+they're a correction to this document's own prior account of this
+arithmetic core's safe range.
+
+Two independent overflow sites, both silently producing a `NaN` that
+`expansion_sign` read as `Sign::Zero` (`Orientation::Collinear`) rather
+than surfacing:
+
+1. **`split()`'s `SPLITTER * a`** (`SPLITTER ~= 2^27`) overflows to
+   `±Infinity` for `|a| > f64::MAX/SPLITTER ~= 1.34e300`, then
+   `hi = c - a_big` becomes `Infinity - Infinity = NaN`. This is the
+   original repro's mechanism: `p1 = (3.2186699543901864e-57,
+   -4.251746146807175e304)`'s y-coordinate exceeds the threshold. Fixed
+   by making `split` recursively split a `2^-100`-rescaled copy of `a`
+   above the threshold, then scale the result back — exact, since
+   power-of-two multiplication never loses precision short of
+   overflow/underflow, and `2^-100` alone brings any finite `a` (up to
+   `f64::MAX`) safely under the threshold in one step.
+2. **`two_sum`'s `a + b`** (inside `diff_expansion`) overflows when two
+   coordinates are opposite-sign and each within a small factor of
+   `f64::MAX`, so their true difference itself exceeds `f64::MAX` — a
+   genuine representability limit (the exact result has no finite `f64`
+   value at all), not an algorithmic artifact like (1). Found
+   independently while diagnosing the above:
+   `a=(1e308,0), b=(-1e308,1e-10), c=(0,1e-10)` is also
+   permutation-inconsistent. Fixed via a new `rescale_for_sign_only`
+   helper, used only by `orient2d_exact`/`orient3d_exact`/
+   `incircle_exact`/`insphere_exact` — **not** pushed into
+   `diff_expansion` itself, since `circumcenter`/`line_intersection` also
+   build on it and need the real magnitude back, not just a sign (see
+   "Phase 6" below for their own, different rescale-and-restore
+   approach). Above a fixed `f64::MAX/4` threshold,
+   `rescale_for_sign_only` rescales *every* coordinate in one predicate
+   call by a fixed `0.25` factor, never restored: a determinant is
+   homogeneous of positive degree in its coordinates, so any positive
+   uniform rescale preserves its sign. Rescaling only the one
+   overflowing difference — not every coordinate — was tried first and
+   rejected: `orient2d`'s determinant multiplies differences from
+   *different* coordinate pairs (`acx*bcy - acy*bcx`), so an
+   inconsistently-scaled diff corrupts the surrounding product's sign,
+   reintroducing the same bug class.
+
+Both repros are pinned in `tests/regression/orient2d.rs`'s
+`permutation_consistent_at_extreme_mixed_magnitude`, checked across all 6
+permutations (not just one swap). `expansion_sign` also gained a
+debug-only NaN guard, but scoped to a new `sign_only_expansion_sign`
+wrapper used only by the 4 sign-only predicates — a shared assert inside
+`expansion_sign` itself broke `circumcenter`/`line_intersection`'s own,
+different (and already correct) way of detecting an unrepresentable
+*result* via a final `.is_finite()` check.
+
+### Residual: `split()`'s narrow rounding-carry ceiling near `±f64::MAX`
+
+For `|a|` within roughly `2^-26` of `f64::MAX` itself (a band `~4.3e300`
+wide at the very top of `f64`'s range), the correctly-rounded result
+would need a nonexistent exponent 1024, so `split` still returns
+`hi = Infinity` there regardless of rescale factor — a rounding-carry
+limit intrinsic to representing the result at all, not specific to the
+`2^-100` rescale choice above. Verified (not assumed): `split` itself
+never produces `NaN` in this band (`hi = Infinity`, `lo` stays finite —
+`split_near_f64_max_does_not_panic`), but `two_product` built on top of
+it still can, via `Infinity * 0.0` (`split`'s own `lo` half is exactly
+`0.0` for plenty of ordinary values, e.g. `split(1.0) == (1.0, 0.0)`) —
+never a panic either way. Structurally distinct from the ceiling below (a
+subtraction/rounding-carry limit, not a multiplication-overflow one), and
+much narrower; tracked in `tasks/todo.md`, not chased further here.
+
+## Known limitation: exact-product representability ceiling
+
+The symmetric large-magnitude counterpart to the floor above: `two_product`'s
+own `hi = a * b` overflows when **both** operands are independently
+larger than roughly `sqrt(f64::MAX) ~= 1.34e154`. Unlike the two overflow
+sites just fixed, this is a genuine representability ceiling, not an
+algorithmic artifact or a genuinely-unrepresentable-difference case —
+the true product itself has no finite `f64` value, and no amount of
+rescaling fixes it (rescaling shifts the whole magnitude range; it
+doesn't compress the *span* between a huge and a tiny coordinate in the
+same predicate call, which the two 0.7.1 fixes above both rely on).
+
+**Practical impact:** confirmed via the real public API,
+`p0=(1e300,1e300), p1=(-1e300,1e300), p2=(0,0)` — a valid, large,
+non-degenerate right triangle — returns `Orientation::Collinear`
+self-consistently across all 6 permutations of `orient2d`. Wrong, but not
+permutation-*inconsistent* (unlike the bugs fixed above), so it doesn't
+panic `delaunay2()`, and `sign_only_expansion_sign`'s debug-only NaN
+guard will now assert on it in debug/fuzz builds — expected, not a
+regression (see `tasks/todo.md`). This `~1.34e154` figure is `orient2d`'s
+own (degree-2, `M^2 < f64::MAX`); `incircle`/`insphere` reach the *same*
+underlying ceiling far sooner, at their own, already-documented, lower
+degree-4/degree-5 thresholds (`~1.16e77`/`~4.6e61` — see "Known
+limitation: incircle/insphere have a narrower safe magnitude range"
+above), confirmed empirically while writing this round's
+`tests/adversarial/incircle.rs`/`insphere.rs` mixed-magnitude spot checks
+(`1e308`, safe for `orient2d`/`orient3d`, hits this ceiling immediately
+for `incircle`/`insphere` via their own internal squaring).
+
+**Upgrade path**, if a future use case ever needs it: a different
+arithmetic architecture (e.g. variable-precision or Shewchuk-adaptive
+expansions, tracking a shared exponent rather than representing every
+component as a full-range `f64`) — a larger undertaking than a patch
+release, tracked in `tasks/todo.md`, not implemented here.
+
 ## Phase 2: composed queries are exact predicates, but not all their output is
 
 `Segment2::relation_to`, `Triangle2::relation_to`, and

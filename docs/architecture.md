@@ -1,12 +1,13 @@
 # Architecture
 
 Status: reflects Phase 1 through Phase 6D, plus every release through
-0.7.0 (Voronoi vertex/edge geometry) — current as of 0.7.0, the latest
-release. Updated per-phase/per-release, not written ahead of the code it
-describes (this file fell behind that discipline once already — it
-described only through Phase 4 despite Phase 6D and two releases already
-having shipped — caught and corrected then; see `tasks/lessons.md` if a
-similar staleness turns up again).
+0.7.1 (a bug-fix patch for the `delaunay2()` permutation-inconsistency
+panic documented as a known issue at 0.7.0) — current as of 0.7.1, the
+latest release. Updated per-phase/per-release, not written ahead of the
+code it describes (this file fell behind that discipline once already —
+it described only through Phase 4 despite Phase 6D and two releases
+already having shipped — caught and corrected then; see
+`tasks/lessons.md` if a similar staleness turns up again).
 
 ## Crate layout
 
@@ -119,7 +120,10 @@ ray-direction finiteness guarantee, replaced two internal panics with
 `VoronoiGeometryError::InvalidTopology`, and added
 `fuzz/fuzz_targets/voronoi_geometry.rs` — see `tasks/todo.md` for the
 full record, including a pre-existing, unrelated `delaunay2()` panic
-that fuzz target found (not fixed as part of this work).
+that fuzz target found (not fixed as part of this work; fixed in a
+dedicated 0.7.1 round instead — see `docs/numerical-model.md`'s "Known
+limitation (fixed): split() overflow and two_sum overflow for sign-only
+predicates" and `tasks/todo.md`).
 
 ## Error enums are `#[non_exhaustive]` (0.3.0)
 

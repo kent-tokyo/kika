@@ -12,7 +12,7 @@ robust 2D/3D computational geometry: exact predicates with adaptive/exact
 fallback arithmetic, and — in later phases — triangulation, hull, and
 polygon algorithms built on top of that foundation.
 
-Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.7.0,
+Status: **pre-alpha (Phase 1-5 and Phase 6A-6D complete).** As of 0.7.1,
 Kika is a robust 2D kernel with exact predicates, 2D convex hull, Delaunay
 triangulation, constrained Delaunay triangulation (narrow scope),
 simple-polygon triangulation with or without holes, a Voronoi diagram
@@ -141,12 +141,7 @@ in pure Rust, that's what Phase 1 of Kika is.
   not a single "correct" answer; the deterministic tie-break rule is
   documented in [`docs/degeneracy-policy.md`](docs/degeneracy-policy.md)
   alongside every other degenerate case (collinear boundary points, points
-  exactly on an existing edge). **Known issue (0.7.0, unfixed):** 3 input
-  points with extreme, widely mixed coordinate magnitude (e.g. one
-  coordinate near `4e304`) can panic — `orient2d` itself returns
-  permutation-inconsistent answers at that magnitude, breaking an
-  antisymmetry assumption this function's own degenerate-input handling
-  relies on. See `CHANGELOG.md`'s 0.7.0 entry and `tasks/todo.md`.
+  exactly on an existing edge).
 * `Triangulation2`'s adjacency structure — `VertexId`/`EdgeId`/`FaceId`
   and `vertices`/`edges`/`faces`/`edge_vertices`/`adjacent_faces`/
   `face_vertices`/`neighboring_faces`/`boundary_edges`, a **static,
@@ -505,5 +500,5 @@ polygon/mesh Boolean; vertex deletion; Delaunay refinement; mesh repair;
 surface reconstruction; point-cloud processing. See
 [`tasks/todo.md`](tasks/todo.md) for the phased backlog and
 [`docs/release-checklist.md`](docs/release-checklist.md) for what's
-verified before each `crates.io`/GitHub release (0.2.0 through 0.7.0 have
+verified before each `crates.io`/GitHub release (0.2.0 through 0.7.1 have
 all shipped; see `CHANGELOG.md`).

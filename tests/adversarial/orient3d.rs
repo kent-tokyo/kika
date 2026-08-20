@@ -99,10 +99,38 @@ fn near_subnormal_scale_does_not_panic() {
 
 #[test]
 fn extreme_large_scale_does_not_panic() {
-    let scale = 1e150_f64;
+    // `1e150` (matching `orient2d`'s own extreme-scale test) is *not* safe
+    // here: `orient3d` is a degree-3 determinant (triple products of
+    // coordinate differences), so its structural safe ceiling is
+    // `f64::MAX^(1/3) ~= 5.65e102`, well below orient2d's degree-2 ceiling
+    // of `f64::MAX^(1/2) ~= 1.34e154`. `1e90` mirrors the same margin this
+    // crate's `circumcenter`/`line_intersection` already use as their own
+    // `RESCALE_THRESHOLD` for degree-3 constructions. Past that ceiling,
+    // this predicate's exact fallback can hit the documented, deliberately
+    // deferred `two_product` overflow (`docs/numerical-model.md` "Known
+    // limitation: exact-product representability ceiling") rather than the
+    // extreme-*mixed*-magnitude bug this crate's 0.7.1 round fixed.
+    let scale = 1e90_f64;
     let a = pt(0.0, 0.0, 0.0);
     let b = pt(scale, 0.0, 0.0);
     let c = pt(0.0, scale, 0.0);
     let d = pt(0.0, 0.0, scale);
+    let _ = orient3d(a, b, c, d);
+}
+
+/// Mixed huge + tiny coordinates in one call, mirroring the shape of the
+/// 0.7.1 `delaunay2()` panic's repro triples
+/// (`tests/regression/orient2d.rs`) rather than the *uniform* extreme
+/// magnitude `extreme_large_scale_does_not_panic` above already covers —
+/// exercises `rescale_for_sign_only`'s trigger threshold (`f64::MAX/4`)
+/// without approaching the separate, deliberately deferred
+/// `two_product` product-ceiling (see `docs/numerical-model.md`), since
+/// only one coordinate here is ever huge at a time.
+#[test]
+fn mixed_huge_and_tiny_magnitude_does_not_panic() {
+    let a = pt(1e308, 0.0, 0.0);
+    let b = pt(-1e308, 1e-10, 0.0);
+    let c = pt(0.0, 1e-10, 1e-10);
+    let d = pt(0.0, 0.0, 1e-10);
     let _ = orient3d(a, b, c, d);
 }

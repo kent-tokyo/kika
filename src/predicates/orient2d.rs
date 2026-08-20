@@ -1,4 +1,7 @@
-use super::expansion::{diff_expansion, expansion_sign, expansion_sum, product_of_expansions};
+use super::expansion::{
+    diff_expansion, expansion_sum, product_of_expansions, rescale_for_sign_only,
+    sign_only_expansion_sign,
+};
 use super::sign::{Orientation, Sign};
 use crate::primitives::Point2;
 
@@ -60,18 +63,25 @@ pub fn orient2d(a: Point2, b: Point2, c: Point2) -> Orientation {
 /// filter's already-rounded differences here would only be exact relative
 /// to that rounding, not to the true input coordinates — see
 /// `docs/numerical-model.md` "Known limitation: exactness starts at the
-/// original coordinates".
+/// original coordinates". Coordinates are first routed through
+/// [`rescale_for_sign_only`], which is a no-op except at extreme
+/// magnitude, where it prevents `diff_expansion`'s internal `two_sum` from
+/// overflowing — see that function's doc comment and
+/// `docs/numerical-model.md` "Known limitation (fixed): two_sum overflow
+/// for sign-only predicates".
 fn orient2d_exact(a: Point2, b: Point2, c: Point2) -> Sign {
-    let acx = diff_expansion(a.x(), c.x());
-    let acy = diff_expansion(a.y(), c.y());
-    let bcx = diff_expansion(b.x(), c.x());
-    let bcy = diff_expansion(b.y(), c.y());
+    let [ax, ay, bx, by, cx, cy] =
+        rescale_for_sign_only([a.x(), a.y(), b.x(), b.y(), c.x(), c.y()]);
+    let acx = diff_expansion(ax, cx);
+    let acy = diff_expansion(ay, cy);
+    let bcx = diff_expansion(bx, cx);
+    let bcy = diff_expansion(by, cy);
 
     let left = product_of_expansions(&acx, &bcy);
     let right = product_of_expansions(&acy, &bcx);
     let neg_right: Vec<f64> = right.iter().map(|v| -v).collect();
     let det = expansion_sum(&left, &neg_right);
-    expansion_sign(&det)
+    sign_only_expansion_sign(&det)
 }
 
 #[cfg(test)]

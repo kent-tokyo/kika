@@ -1,6 +1,6 @@
 use super::expansion::{
-    det3_exact, det3_with_precancel_bound, diff_expansion, expansion_sign, expansion_sum, negate,
-    product_of_expansions,
+    det3_exact, det3_with_precancel_bound, diff_expansion, expansion_sum, negate,
+    product_of_expansions, rescale_for_sign_only, sign_only_expansion_sign,
 };
 use super::sign::Sign;
 use crate::primitives::Point3;
@@ -101,19 +101,39 @@ pub fn insphere(a: Point3, b: Point3, c: Point3, d: Point3, e: Point3) -> Sign {
     insphere_exact(a, b, c, d, e)
 }
 
+/// Exact fallback: coordinates are first routed through
+/// [`rescale_for_sign_only`] — see that function's doc comment and
+/// `orient2d_exact`'s.
 fn insphere_exact(a: Point3, b: Point3, c: Point3, d: Point3, e: Point3) -> Sign {
-    let adx = diff_expansion(a.x(), e.x());
-    let ady = diff_expansion(a.y(), e.y());
-    let adz = diff_expansion(a.z(), e.z());
-    let bdx = diff_expansion(b.x(), e.x());
-    let bdy = diff_expansion(b.y(), e.y());
-    let bdz = diff_expansion(b.z(), e.z());
-    let cdx = diff_expansion(c.x(), e.x());
-    let cdy = diff_expansion(c.y(), e.y());
-    let cdz = diff_expansion(c.z(), e.z());
-    let ddx = diff_expansion(d.x(), e.x());
-    let ddy = diff_expansion(d.y(), e.y());
-    let ddz = diff_expansion(d.z(), e.z());
+    let [ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, ex, ey, ez] = rescale_for_sign_only([
+        a.x(),
+        a.y(),
+        a.z(),
+        b.x(),
+        b.y(),
+        b.z(),
+        c.x(),
+        c.y(),
+        c.z(),
+        d.x(),
+        d.y(),
+        d.z(),
+        e.x(),
+        e.y(),
+        e.z(),
+    ]);
+    let adx = diff_expansion(ax, ex);
+    let ady = diff_expansion(ay, ey);
+    let adz = diff_expansion(az, ez);
+    let bdx = diff_expansion(bx, ex);
+    let bdy = diff_expansion(by, ey);
+    let bdz = diff_expansion(bz, ez);
+    let cdx = diff_expansion(cx, ex);
+    let cdy = diff_expansion(cy, ey);
+    let cdz = diff_expansion(cz, ez);
+    let ddx = diff_expansion(dx, ex);
+    let ddy = diff_expansion(dy, ey);
+    let ddz = diff_expansion(dz, ez);
 
     let square_sum = |x: &[f64], y: &[f64], z: &[f64]| -> Vec<f64> {
         expansion_sum(
@@ -140,7 +160,7 @@ fn insphere_exact(a: Point3, b: Point3, c: Point3, d: Point3, e: Point3) -> Sign
         &expansion_sum(&expansion_sum(&term_a, &negate(&term_b)), &term_c),
         &negate(&term_d),
     );
-    expansion_sign(&det)
+    sign_only_expansion_sign(&det)
 }
 
 #[cfg(test)]
