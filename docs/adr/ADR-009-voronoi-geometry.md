@@ -355,6 +355,11 @@ pub enum VoronoiEdgeGeometry {
 scope, not closed by mathematical necessity — a future 1-2-site `Line`
 case would need a third variant.
 
+Both `VoronoiGeometryError` and `VoronoiEdgeGeometry` are re-exported at
+`src/triangulation/mod.rs` and the crate root (`src/lib.rs`) — the same
+path every existing Voronoi type already takes (ADR-007's "Module
+placement"), not a new pattern.
+
 ## Degenerate cases
 
 | Case | Behavior |
