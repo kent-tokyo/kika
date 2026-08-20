@@ -1,5 +1,56 @@
 # Todo
 
+## Done (ADR-009: Voronoi vertex/edge geometry design — design only, not implemented)
+
+- [x] `docs/adr/ADR-009-voronoi-geometry.md` — full design for 0.7.0's
+      Voronoi geometry API (`Voronoi2::vertex_point`/`edge_geometry`,
+      `VoronoiGeometryError`, `VoronoiEdgeGeometry`), following
+      `line_intersection`'s correctly-rounded-construction discipline
+      (ADR-004 Phase 5) rather than inventing a new one: circumcenter as
+      a degree-2-denominator/degree-3-numerator `correctly_rounded_divide`
+      construction (same shape as `line_intersection`, `a`'s coordinate
+      folded into the numerator to avoid double rounding), ray direction
+      as an unnormalized (no `sqrt` anywhere in this crate) exact-difference
+      vector with an `orient2d`-based sign choice.
+- [x] Central open questions ROADMAP.md's own 0.7.0 design-question list
+      named, each answered: (1) correctly-rounded circumcenter
+      construction, following `line_intersection`'s precedent; (2) the
+      typed error case — `VoronoiGeometryError::NonFiniteCircumcenter`,
+      needed because a triangle's circumradius is unbounded relative to
+      input magnitude as it approaches collinear (unlike
+      `line_intersection`'s ceiling, rescaling cannot fix this — only a
+      post-division finiteness check can); (3) unbounded-edge ray
+      direction, derived from the dual hull edge via `orient2d` sign
+      selection, no division; (4) canonical-per-group circumcenter —
+      argued correctly-rounded output is identical regardless of which
+      member face supplies it (provable within the exact-arithmetic
+      range), with the representative-face pick itself keyed by
+      site-identity (lexicographically-smallest sorted `VertexId` triple)
+      rather than `FaceId`/scan order, so the choice stays canonical even
+      below that range — matching ADR-007's own canonical-id discipline
+      one layer deeper.
+- [x] Reviewed and revised before finalizing (self-review caught 6 real
+      gaps in the first draft): the divide-loop 8-iteration bound needs
+      re-measuring against circumcenter's own cancellation shape
+      (`line_intersection`'s "2 iterations" result doesn't transfer), the
+      ray-direction coordinate difference is correctly-rounded not exact
+      (a precision overclaim in the first draft), the group-representative
+      pick needed to be site-identity-keyed rather than `FaceId::raw()`
+      order, a concrete unit-scale overflow fixture
+      (`a=(0,0)`,`b=(1,0)`,`c=(0.5,ε)`) replaces a vague "extreme
+      magnitude" claim, `d`-is-zero is checked explicitly rather than
+      trusted from the CCW-face invariant (matching ADR-008's
+      `validate_topology`-is-test-only posture), and the shared
+      construction is placed in `predicates::constructions` (reusable by
+      0.8.0/0.9.0) rather than defaulted into the `triangulation` module.
+- [x] **Not done, deliberately**: no `src/` code, no `Cargo.toml` change,
+      no version bump, no dependency, no performance work. Matches
+      ADR-007's own "design round, not an automatic follow-on to
+      implementation" precedent — starting implementation remains its
+      own separate decision, per `ROADMAP.md`'s "stop after each
+      release/round" rule and the standing roadmap-pacing policy (see
+      memory).
+
 ## Done (post-0.6.0: ROADMAP staged plan through 1.0.0, point_location fuzz target)
 
 - [x] `ROADMAP.md` (internal, gitignored) staged-plan revised: 0.7.0
